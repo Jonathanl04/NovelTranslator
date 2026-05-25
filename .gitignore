@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 output/
+translated/
+translator_config.json
+glossary.json
