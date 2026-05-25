@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -60,6 +61,10 @@ def safe_name(name: str) -> str:
 
 
 def infer_book_id(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.netloc not in {"uukanshu.cc", "www.uukanshu.cc"}:
+        raise ValueError("This scraper only supports uukanshu.cc URLs.")
+
     match = re.search(r"/book/(\d+)/?", url)
     if not match:
         raise ValueError(f"Could not infer book id from URL: {url}")
@@ -163,7 +168,7 @@ def extract_chapter_text(page_text: str, fallback_title: str) -> tuple[str, str]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Download a chapter range from a UU看書 novel.")
-    parser.add_argument("url", help="Book index URL, for example https://uukanshu.cc/book/25771/")
+    parser.add_argument("url", help="UU看書 book index URL, for example https://uukanshu.cc/book/25771/")
     parser.add_argument("start", type=int, help="First chapter number to download, inclusive.")
     parser.add_argument("end", type=int, help="Last chapter number to download, inclusive.")
     return parser.parse_args()

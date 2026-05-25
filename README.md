@@ -94,13 +94,23 @@ The app asks DeepSeek to add only terms that need consistency, such as:
 
 ```text
 app.py                 Local web app and DeepSeek integration
-scraper/               Existing chapter downloader
+scraper/download_uukanshu.py UU看書 chapter downloader
 output/                Downloaded source chapters, ignored by git
 translated/            Translated chapters
 glossaries/            Novel-specific glossary files, ignored by git
 tests/                 Unit tests
 translator_config.json Local API key/model config, ignored by git
 ```
+
+## Downloader
+
+Use the scraper to download a chapter range from a UU看書 novel into `output/<book name>/`:
+
+```powershell
+python .\scraper\download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
+```
+
+The script only accepts `uukanshu.cc` URLs.
 
 ## Tests
 
@@ -109,4 +119,3 @@ Run:
 ```powershell
 python -m unittest
 ```
-
