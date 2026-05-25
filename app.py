@@ -47,7 +47,7 @@ ALLOWED_CATEGORIES = {
     "address",
     "proper_noun",
 }
-ALLOWED_GENDERS = {"", "male", "female", "unknown", "it"}
+ALLOWED_GENDERS = {"", "male", "female", "it"}
 
 
 class AppError(Exception):
