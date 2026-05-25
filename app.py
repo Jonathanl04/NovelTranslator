@@ -16,6 +16,7 @@ OUTPUT_ROOT = ROOT / "output"
 TRANSLATED_ROOT = ROOT / "translated"
 CONFIG_PATH = ROOT / "translator_config.json"
 GLOSSARY_PATH = ROOT / "glossary.json"
+GLOSSARY_ROOT = ROOT / "glossaries"
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash"
 DEFAULT_GLOSSARY_MODEL = "deepseek-v4-pro"
@@ -68,6 +69,7 @@ def read_json(path: Path, default: Any) -> Any:
 
 
 def write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -124,16 +126,29 @@ def mask_key(api_key: str) -> str:
     return f"{api_key[:4]}...{api_key[-4:]}"
 
 
-def load_glossary() -> list[dict[str, str]]:
-    data = read_json(GLOSSARY_PATH, [])
+def safe_file_stem(value: str) -> str:
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", value).strip(" .")
+    if not stem:
+        raise AppError("Invalid novel.")
+    return stem
+
+
+def glossary_path(novel: str, glossary_root: Path | None = None) -> Path:
+    glossary_root = glossary_root or GLOSSARY_ROOT
+    return glossary_root / f"{safe_file_stem(safe_segment(novel, 'novel'))}.json"
+
+
+def load_glossary(novel: str | None = None) -> list[dict[str, str]]:
+    path = glossary_path(novel) if novel else GLOSSARY_PATH
+    data = read_json(path, [])
     if not isinstance(data, list):
-        raise AppError("glossary.json must contain a JSON array.", 500)
+        raise AppError(f"{path.name} must contain a JSON array.", 500)
     return [normalize_glossary_entry(item) for item in data if isinstance(item, dict)]
 
 
-def save_glossary(entries: list[dict[str, Any]]) -> list[dict[str, str]]:
+def save_glossary(entries: list[dict[str, Any]], novel: str | None = None) -> list[dict[str, str]]:
     normalized = [entry for entry in (normalize_glossary_entry(item) for item in entries) if entry]
-    write_json(GLOSSARY_PATH, normalized)
+    write_json(glossary_path(novel) if novel else GLOSSARY_PATH, normalized)
     return normalized
 
 
@@ -288,12 +303,9 @@ def glossary_prompt(glossary: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> list[dict[str, str]]:
-    system = """
-You translate Traditional Chinese web novel chapters into natural English.
-Preserve meaning, tone, and all story content.
-Use established glossary entries exactly.
-Do not leave Chinese characters in the English title or body.
+SHARED_PROMPT_PREFIX = """
+You are working on Traditional Chinese web novel localization into natural
+English. Apply these rules consistently.
 
 Context over Dictionary: Always deduce the entity type and domain from the
 provided context, including surrounding text and sibling terms in a cluster.
@@ -313,12 +325,23 @@ Honorifics & Address: Follow source language norms. Translate Chinese
 honorifics to English, such as Senior Brother, Elder, Young Master. Retain
 common Japanese honorifics, such as -san and -senpai, and Korean honorifics,
 such as -ssi and sunbae, as romanized suffixes or words.
+""".strip()
+
+
+def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> list[dict[str, str]]:
+    system = f"""
+{SHARED_PROMPT_PREFIX}
+
+Task: Translate the provided chapter into English.
+Preserve meaning, tone, and all story content.
+Use established glossary entries exactly.
+Do not leave Chinese characters in the English title or body.
 
 Return only valid JSON with:
-{
+{{
   "translated_title": "English title",
   "translated_body": "English body with paragraph breaks"
-}
+}}
 """.strip()
     user = f"""
 Established glossary:
@@ -336,36 +359,22 @@ Chapter body:
 def build_glossary_messages(
     title: str, body: str, glossary: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
-    system = """
-You extract glossary entries from Traditional Chinese web novel chapters.
-Use context over dictionary lookup: deduce entity type and domain from
-surrounding text and sibling terms, and align structurally with existing
-translations.
+    system = f"""
+{SHARED_PROMPT_PREFIX}
 
-Translate vs Transliterate: Fully translate objects, artifacts, techniques,
-and fictional organizations into English. Keep character names and established
-real-world proper nouns romanized.
-
-World-Building Context: Do not blindly map terms to real-world locations in a
-fantasy or historical setting. Translate 京都 as "The Capital" or "Imperial
-Capital" unless the context explicitly refers to the real-world city.
-
-Honorifics & Address: Translate Chinese honorifics to English, such as Senior
-Brother, Elder, Young Master. Retain common Japanese honorifics, such as -san
-and -senpai, and Korean honorifics, such as -ssi and sunbae, as romanized
-suffixes or words.
+Task: Extract glossary entries from the provided chapter.
 
 Return only valid JSON with:
-{
+{{
   "glossary_updates": [
-    {
+    {{
       "source_term": "original term",
       "english_term": "consistent English rendering",
       "category": "character|place|sect|clan|organization|school|faction|realm|rank|system|worldbuilding|technique|spell|artifact|weapon|formation|pill|treasure|title|address|proper_noun",
       "gender_or_pronoun": "male|female|unknown|it|"
-    }
+    }}
   ]
-}
+}}
 
 Add entries only for character names, places, sects/clans/organizations,
 cultivation realms/ranks/systems, recurring worldbuilding terms, techniques,
@@ -484,42 +493,31 @@ def context_window(value: str, fragment: str, size: int = 80) -> str:
     return value[start:end].replace("\n", "\\n")
 
 
-def source_contexts_for_fragment(source_text: str, fragment: str, limit: int = 2) -> list[str]:
-    contexts = []
-    start = 0
-    while len(contexts) < limit:
-        index = source_text.find(fragment, start)
-        if index < 0:
-            break
-        begin = max(0, index - 80)
-        end = min(len(source_text), index + len(fragment) + 80)
-        contexts.append(source_text[begin:end].replace("\n", "\\n"))
-        start = index + len(fragment)
-    return contexts
-
-
 def build_fragment_repair_messages(
-    title: str, body: str, draft_json: str
+    translation_messages: list[dict[str, str]], draft_json: str
 ) -> list[dict[str, str]]:
     fragments = cjk_fragments(draft_json)
-    source_text = f"{title}\n\n{body}"
     items = [
         {
             "fragment": fragment,
             "draft_context": context_window(draft_json, fragment),
-            "source_context": source_contexts_for_fragment(source_text, fragment),
         }
         for fragment in fragments
     ]
-    system = """
-You replace untranslated Chinese fragments in an English novel translation.
-Return only valid JSON with a replacements array.
+    instruction = """
+The previous translation JSON still contains untranslated Chinese fragments.
+Using the full source context and draft translation already present in this chat,
+return only valid JSON with a replacements array.
 For each fragment, provide a natural English replacement based on context.
 Do not use Chinese Han characters in replacements.
 Do not include explanations.
 """.strip()
-    user = json.dumps({"fragments": items}, ensure_ascii=False, indent=2)
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    user = instruction + "\n\n" + json.dumps({"fragments": items}, ensure_ascii=False, indent=2)
+    return [
+        *translation_messages,
+        {"role": "assistant", "content": draft_json},
+        {"role": "user", "content": user},
+    ]
 
 
 def parse_fragment_replacements(data: dict[str, Any]) -> dict[str, str]:
@@ -618,14 +616,14 @@ def populate_glossary_for_chapter(
     title, body = split_chapter(original)
 
     with state_lock:
-        glossary = load_glossary()
+        glossary = load_glossary(novel)
     messages = build_glossary_messages(title, body, glossary)
     api_response = call_api(config["api_key"], config["glossary_model"], messages)
     updates = parse_glossary_response(api_response)
 
     with state_lock:
-        merged = merge_glossary_entries(load_glossary(), updates)
-        write_json(GLOSSARY_PATH, merged)
+        merged = merge_glossary_entries(load_glossary(novel), updates)
+        write_json(glossary_path(novel), merged)
     return merged
 
 
@@ -642,7 +640,7 @@ def translate_chapter(
     original = source_path(novel, filename).read_text(encoding="utf-8")
     title, body = split_chapter(original)
 
-    glossary = populate_glossary_for_chapter(novel, filename, call_api) if populate_glossary else load_glossary()
+    glossary = populate_glossary_for_chapter(novel, filename, call_api) if populate_glossary else load_glossary(novel)
     messages = build_messages(title, body, glossary)
     api_response = call_api(config["api_key"], config["translation_model"], messages)
     try:
@@ -655,7 +653,7 @@ def translate_chapter(
             fragment_response = call_api(
                 config["api_key"],
                 config["translation_model"],
-                build_fragment_repair_messages(title, body, draft_json),
+                build_fragment_repair_messages(messages, draft_json),
             )
             compact_json = apply_fragment_replacements(
                 draft_json, parse_fragment_replacements(fragment_response)
@@ -669,7 +667,7 @@ def translate_chapter(
             parsed = parse_translation_response(repair_response)
 
     with state_lock:
-        current_glossary = load_glossary()
+        current_glossary = load_glossary(novel)
         output = write_translation(
             novel, filename, parsed["translated_title"], parsed["translated_body"]
         )
@@ -1007,6 +1005,7 @@ INDEX_HTML = r"""<!doctype html>
       state.file = "";
       $("source").value = "";
       $("translated").value = "";
+      await loadGlossary();
       const chapters = await api(`/api/chapters?novel=${encodeURIComponent(state.novel)}`);
       $("chapters").innerHTML = "";
       for (const chapter of chapters) {
@@ -1083,7 +1082,11 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function loadGlossary() {
-      renderGlossary(await api("/api/glossary"));
+      if (!state.novel) {
+        renderGlossary([]);
+        return;
+      }
+      renderGlossary(await api(`/api/glossary?novel=${encodeURIComponent(state.novel)}`));
     }
 
     function renderGlossary(entries) {
@@ -1120,7 +1123,7 @@ INDEX_HTML = r"""<!doctype html>
     async function saveGlossary() {
       const saved = await api("/api/glossary", {
         method: "POST",
-        body: JSON.stringify({ entries: collectGlossary() })
+        body: JSON.stringify({ novel: state.novel, entries: collectGlossary() })
       });
       renderGlossary(saved);
       setStatus("Glossary saved.");
@@ -1181,7 +1184,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(read_chapter(first(query, "novel"), first(query, "file")))
                 return
             if parsed.path == "/api/glossary":
-                self.handle_glossary(method)
+                query = urllib.parse.parse_qs(parsed.query)
+                self.handle_glossary(method, first(query, "novel") if method == "GET" else "")
                 return
             if method == "POST" and parsed.path == "/api/populate-glossary":
                 data = self.body_json()
@@ -1231,17 +1235,19 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
-    def handle_glossary(self, method: str) -> None:
+    def handle_glossary(self, method: str, novel: str) -> None:
         if method == "GET":
-            self.json(load_glossary())
+            self.json(load_glossary(novel))
             return
         if method != "POST":
             raise AppError("Method not allowed.", 405)
         data = self.body_json()
+        if not novel:
+            novel = str(data.get("novel", ""))
         entries = data.get("entries", [])
         if not isinstance(entries, list):
             raise AppError("entries must be a list.")
-        self.json(save_glossary(entries))
+        self.json(save_glossary(entries, novel))
 
     def body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

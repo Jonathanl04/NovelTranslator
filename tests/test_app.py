@@ -10,11 +10,30 @@ import app
 
 
 class TranslatorAppTests(unittest.TestCase):
+    def test_glossary_and_translation_prompts_share_stable_prefix(self) -> None:
+        glossary = [
+            {
+                "source_term": "太玄界",
+                "english_term": "Taixuan Realm",
+                "category": "place",
+                "gender_or_pronoun": "",
+            }
+        ]
+
+        translation = app.build_messages("第1章", "正文", glossary)[0]["content"]
+        glossary_messages = app.build_glossary_messages("第1章", "正文", glossary)[0][
+            "content"
+        ]
+
+        self.assertTrue(translation.startswith(app.SHARED_PROMPT_PREFIX))
+        self.assertTrue(glossary_messages.startswith(app.SHARED_PROMPT_PREFIX))
+
     def test_lists_novels_and_chapters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
+            glossaries = root / "glossaries"
             novel_dir = output / "Book"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_Chapter.txt").write_text("第1章\n\n正文", encoding="utf-8")
@@ -109,16 +128,57 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(len(merged), 2)
         self.assertEqual(merged[1]["source_term"], "太玄界")
 
+    def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            global_glossary = root / "glossary.json"
+            glossaries = root / "glossaries"
+            global_glossary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "source_term": "太玄界",
+                            "english_term": "Taixuan Realm",
+                            "category": "place",
+                            "gender_or_pronoun": "",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(app, "GLOSSARY_PATH", global_glossary), patch.object(
+                app, "GLOSSARY_ROOT", glossaries
+            ):
+                self.assertEqual(app.load_glossary("Book"), [])
+                app.save_glossary(
+                    [
+                        {
+                            "source_term": "徐邢",
+                            "english_term": "Xu Xing",
+                            "category": "character",
+                            "gender_or_pronoun": "male",
+                        }
+                    ],
+                    "Book",
+                )
+                self.assertEqual(app.load_glossary("Book")[0]["source_term"], "徐邢")
+                self.assertTrue((glossaries / "Book.json").exists())
+
     def test_translate_chapter_writes_output_and_updates_glossary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
+            glossaries = root / "glossaries"
             novel_dir = output / "Book"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
             config = root / "translator_config.json"
-            glossary = root / "glossary.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book.json"
+            glossaries.mkdir()
             config.write_text(
                 json.dumps(
                     {
@@ -154,7 +214,9 @@ class TranslatorAppTests(unittest.TestCase):
             with patch.object(app, "OUTPUT_ROOT", output), patch.object(
                 app, "TRANSLATED_ROOT", translated
             ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", glossary
+                app, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                app, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter("Book", "001_第1章.txt", fake_call)
 
@@ -170,11 +232,14 @@ class TranslatorAppTests(unittest.TestCase):
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
+            glossaries = root / "glossaries"
             novel_dir = output / "Book"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
             config = root / "translator_config.json"
-            glossary = root / "glossary.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book.json"
+            glossaries.mkdir()
             config.write_text(
                 json.dumps(
                     {
@@ -212,7 +277,9 @@ class TranslatorAppTests(unittest.TestCase):
             with patch.object(app, "OUTPUT_ROOT", output), patch.object(
                 app, "TRANSLATED_ROOT", translated
             ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", glossary
+                app, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                app, "GLOSSARY_ROOT", glossaries
             ):
                 app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
@@ -225,11 +292,14 @@ class TranslatorAppTests(unittest.TestCase):
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
+            glossaries = root / "glossaries"
             novel_dir = output / "Book"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n通行區域。", encoding="utf-8")
             config = root / "translator_config.json"
-            glossary = root / "glossary.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book.json"
+            glossaries.mkdir()
             config.write_text(
                 json.dumps(
                     {
@@ -250,7 +320,10 @@ class TranslatorAppTests(unittest.TestCase):
                         "translated_title": "Chapter 1",
                         "translated_body": "Outside the 通行 area.",
                     }
-                self.assertIn("fragments", messages[1]["content"])
+                self.assertGreaterEqual(len(messages), 4)
+                self.assertEqual(messages[2]["role"], "assistant")
+                self.assertIn("Outside the 通行 area.", messages[2]["content"])
+                self.assertIn("fragments", messages[-1]["content"])
                 return {
                     "replacements": [
                         {"source": "通行", "replacement": "permitted passage"}
@@ -260,7 +333,9 @@ class TranslatorAppTests(unittest.TestCase):
             with patch.object(app, "OUTPUT_ROOT", output), patch.object(
                 app, "TRANSLATED_ROOT", translated
             ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", glossary
+                app, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                app, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
@@ -274,11 +349,14 @@ class TranslatorAppTests(unittest.TestCase):
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
+            glossaries = root / "glossaries"
             novel_dir = output / "Book"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n遁光。", encoding="utf-8")
             config = root / "translator_config.json"
-            glossary = root / "glossary.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book.json"
+            glossaries.mkdir()
             config.write_text(
                 json.dumps(
                     {
@@ -300,6 +378,8 @@ class TranslatorAppTests(unittest.TestCase):
                         "translated_body": "A streak of 遁光.",
                     }
                 if len(calls) == 2:
+                    self.assertGreaterEqual(len(messages), 4)
+                    self.assertEqual(messages[2]["role"], "assistant")
                     return {"replacements": [{"source": "遁光", "replacement": "遁 light"}]}
                 self.assertIn("repair English novel translation JSON", messages[0]["content"])
                 return {
@@ -310,7 +390,9 @@ class TranslatorAppTests(unittest.TestCase):
             with patch.object(app, "OUTPUT_ROOT", output), patch.object(
                 app, "TRANSLATED_ROOT", translated
             ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", glossary
+                app, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                app, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
