@@ -406,7 +406,7 @@ class TranslatorAppTests(unittest.TestCase):
 
             self.assertEqual(calls, ["deepseek-v4-flash"])
 
-    def test_translate_only_retries_invalid_translation_json_with_same_messages(self) -> None:
+    def test_translate_only_retries_invalid_translation_json_by_continuing_chat(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output = root / "output"
@@ -466,13 +466,21 @@ class TranslatorAppTests(unittest.TestCase):
                 )
 
             self.assertEqual(len(calls), 3)
-            self.assertEqual(calls[0], calls[1])
-            self.assertEqual(calls[1], calls[2])
+            first_messages = json.loads(calls[0])
+            second_messages = json.loads(calls[1])
+            third_messages = json.loads(calls[2])
+            self.assertEqual(second_messages[:2], first_messages)
+            self.assertEqual(second_messages[2], {"role": "assistant", "content": "not json"})
+            self.assertIn("not valid JSON", second_messages[3]["content"])
+            self.assertEqual(third_messages[:4], second_messages)
+            self.assertEqual(third_messages[4], {"role": "assistant", "content": "not json"})
+            self.assertIn("resend the corrected translation", third_messages[5]["content"])
             self.assertIn("The Taixuan Realm.", result["translated"])
             log_entries = [json.loads(line) for line in failure_log.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(log_entries), 2)
             self.assertEqual(log_entries[0]["event"], "translation_parse_error")
-            self.assertEqual(log_entries[0]["request"], log_entries[1]["request"])
+            self.assertEqual(log_entries[1]["request"]["messages"][:2], log_entries[0]["request"]["messages"])
+            self.assertEqual(log_entries[1]["request"]["messages"][2], {"role": "assistant", "content": "not json"})
             self.assertEqual(
                 log_entries[0]["response"]["choices"][0]["message"]["content"],
                 "not json",

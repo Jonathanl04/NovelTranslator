@@ -203,6 +203,22 @@ Do not include explanations.
     ]
 
 
+def build_invalid_translation_json_retry_messages(
+    translation_messages: list[dict[str, str]], invalid_json: str
+) -> list[dict[str, str]]:
+    user = """
+The previous message was not valid JSON and could not be parsed.
+Please check it and resend the corrected translation as valid JSON only.
+Return exactly the same schema with translated_title and translated_body.
+Do not include explanations or Markdown.
+""".strip()
+    return [
+        *translation_messages,
+        {"role": "assistant", "content": invalid_json},
+        {"role": "user", "content": user},
+    ]
+
+
 def parse_fragment_replacements(data: dict[str, Any]) -> dict[str, str]:
     if "choices" in data:
         try:
@@ -322,6 +338,7 @@ def translate_chapter(
 
     glossary = populate_glossary_for_chapter(novel, filename, call_api) if populate_glossary else load_glossary(novel)
     messages = build_messages(title, body, glossary)
+    retry_messages = messages
     api_response = call_api(config["api_key"], config["translation_model"], messages)
     try:
         for retry_index in range(TRANSLATION_JSON_RETRIES + 1):
@@ -329,10 +346,13 @@ def translate_chapter(
                 parsed = parse_translation_response(api_response)
                 break
             except AppError as exc:
-                log_parse_failure("translation_parse_error", config["translation_model"], messages, api_response, exc)
+                log_parse_failure("translation_parse_error", config["translation_model"], retry_messages, api_response, exc)
                 if INVALID_TRANSLATION_JSON_MESSAGE not in str(exc) or retry_index == TRANSLATION_JSON_RETRIES:
                     raise
-                api_response = call_api(config["api_key"], config["translation_model"], messages)
+                retry_messages = build_invalid_translation_json_retry_messages(
+                    retry_messages, response_message_content(api_response)
+                )
+                api_response = call_api(config["api_key"], config["translation_model"], retry_messages)
     except AppError as exc:
         if "still contains Chinese or Korean source-language text" not in str(exc):
             raise
@@ -341,7 +361,7 @@ def translate_chapter(
             fragment_response = call_api(
                 config["api_key"],
                 config["translation_model"],
-                build_fragment_repair_messages(messages, draft_json),
+                build_fragment_repair_messages(retry_messages, draft_json),
             )
             compact_json = apply_fragment_replacements(
                 draft_json, parse_fragment_replacements(fragment_response)
@@ -350,7 +370,7 @@ def translate_chapter(
         except (AppError, json.JSONDecodeError) as exc:
             log_deepseek_failure(
                 "fragment_repair_parse_error",
-                deepseek_request_payload(config["translation_model"], build_fragment_repair_messages(messages, draft_json)),
+                deepseek_request_payload(config["translation_model"], build_fragment_repair_messages(retry_messages, draft_json)),
                 str(exc),
                 response=locals().get("fragment_response"),
             )
