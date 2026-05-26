@@ -19,7 +19,7 @@ def call_deepseek(
         "model": model,
         "messages": messages,
         "thinking": {"type": "disabled"},
-        "temperature": 0.6,
+        "temperature": 0.4,
         "stream": False,
         "response_format": {"type": "json_object"},
     }
