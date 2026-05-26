@@ -2,14 +2,60 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 MIRROR_PREFIX = "https://r.jina.ai/http://"
 OUTPUT_ROOT = Path("output")
+
+CHINESE_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "○": 0,
+    "一": 1,
+    "壹": 1,
+    "二": 2,
+    "兩": 2,
+    "两": 2,
+    "貳": 2,
+    "贰": 2,
+    "三": 3,
+    "參": 3,
+    "叁": 3,
+    "四": 4,
+    "肆": 4,
+    "五": 5,
+    "伍": 5,
+    "六": 6,
+    "陸": 6,
+    "陆": 6,
+    "七": 7,
+    "柒": 7,
+    "八": 8,
+    "捌": 8,
+    "九": 9,
+    "玖": 9,
+}
+
+CHINESE_SMALL_UNITS = {
+    "十": 10,
+    "拾": 10,
+    "百": 100,
+    "佰": 100,
+    "千": 1000,
+    "仟": 1000,
+}
+
+CHINESE_LARGE_UNITS = {
+    "萬": 10_000,
+    "万": 10_000,
+    "億": 100_000_000,
+    "亿": 100_000_000,
+}
 
 
 def fetch_text(url: str) -> str:
@@ -60,6 +106,48 @@ def safe_name(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", name).strip(" .")
 
 
+def chinese_numeral_to_int(text: str) -> int:
+    total = 0
+    section = 0
+    number = 0
+
+    for char in text:
+        if char in CHINESE_DIGITS:
+            number = CHINESE_DIGITS[char]
+            continue
+
+        if char in CHINESE_SMALL_UNITS:
+            unit = CHINESE_SMALL_UNITS[char]
+            section += (number or 1) * unit
+            number = 0
+            continue
+
+        if char in CHINESE_LARGE_UNITS:
+            unit = CHINESE_LARGE_UNITS[char]
+            total += (section + number or 1) * unit
+            section = 0
+            number = 0
+            continue
+
+        raise ValueError(f"Unsupported chapter numeral: {text}")
+
+    return total + section + number
+
+
+def parse_chapter_number(title: str) -> int | None:
+    match = re.search(r"第(.+?)章", title)
+    if not match:
+        return None
+
+    raw_number = match.group(1)
+    if raw_number.isdigit():
+        return int(raw_number)
+    try:
+        return chinese_numeral_to_int(raw_number)
+    except ValueError:
+        return None
+
+
 def infer_book_id(url: str) -> str:
     parsed = urlparse(url)
     if parsed.netloc not in {"uukanshu.cc", "www.uukanshu.cc"}:
@@ -92,19 +180,17 @@ def extract_chapter_links(index_text: str, book_id: str) -> list[tuple[int, str,
     if "Markdown Content:" in index_text:
         markdown = markdown_content(index_text)
         link_re = re.compile(
-            rf"\[([^\]]+)\]\((https?://uukanshu\.cc/book/{book_id}/\d+\.html)(?:\s+\"[^\"]*\")?\)"
+            rf"\[([^\]]+)\]\(((?:https?://(?:www\.)?uukanshu\.cc)?/book/{book_id}/\d+\.html)(?:\s+\"[^\"]*\")?\)"
         )
 
         for title, url in link_re.findall(markdown):
-            if not title.startswith("第") or "章" not in title:
+            chapter_number = parse_chapter_number(title)
+            if chapter_number is None:
                 continue
             if url in seen:
                 continue
-            match = re.search(r"第(\d+)章", title)
-            if not match:
-                continue
             seen.add(url)
-            links.append((int(match.group(1)), title.strip(), url))
+            links.append((chapter_number, title.strip(), url if url.startswith("http") else urljoin("https://uukanshu.cc", url)))
     else:
         soup = BeautifulSoup(index_text, "html.parser")
         content = soup.select_one(".content")
@@ -114,18 +200,16 @@ def extract_chapter_links(index_text: str, book_id: str) -> list[tuple[int, str,
         for anchor in content.select("a[href]"):
             title = anchor.get_text(strip=True)
             href = anchor.get("href", "")
-            if not title.startswith("第") or "章" not in title:
+            chapter_number = parse_chapter_number(title)
+            if chapter_number is None:
                 continue
             if f"/book/{book_id}/" not in href or not href.endswith(".html"):
                 continue
-            url = href if href.startswith("http") else f"https://uukanshu.cc{href}"
+            url = urljoin("https://uukanshu.cc", href)
             if url in seen:
                 continue
-            match = re.search(r"第(\d+)章", title)
-            if not match:
-                continue
             seen.add(url)
-            links.append((int(match.group(1)), title, url))
+            links.append((chapter_number, title, url))
 
     if not links:
         raise RuntimeError("No chapter links were found on the index page.")
@@ -175,6 +259,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
     if args.start < 1 or args.end < args.start:
         raise ValueError("Invalid chapter range: start must be >= 1 and end must be >= start.")
