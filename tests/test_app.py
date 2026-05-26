@@ -28,6 +28,18 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertTrue(translation.startswith(app.SHARED_PROMPT_PREFIX))
         self.assertTrue(glossary_messages.startswith(app.SHARED_PROMPT_PREFIX))
 
+    def test_glossary_prompt_omits_category_annotation(self) -> None:
+        glossary = [
+            {
+                "source_term": "太玄界",
+                "english_term": "Taixuan Realm",
+                "category": "place",
+                "gender_or_pronoun": "",
+            }
+        ]
+
+        self.assertEqual(app.glossary_prompt(glossary), "太玄界 => Taixuan Realm")
+
     def test_lists_novels_and_chapters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -92,7 +104,7 @@ class TranslatorAppTests(unittest.TestCase):
         with self.assertRaises(app.AppError):
             app.parse_translation_response(payload)
 
-    def test_merge_glossary_preserves_existing_and_filters_categories(self) -> None:
+    def test_merge_glossary_preserves_existing_and_ai_chosen_categories(self) -> None:
         existing = [
             {
                 "source_term": "徐邢",
@@ -125,8 +137,25 @@ class TranslatorAppTests(unittest.TestCase):
 
         self.assertEqual(merged[0]["english_term"], "Xu Xing")
         self.assertNotIn("notes", merged[0])
-        self.assertEqual(len(merged), 2)
+        self.assertEqual(len(merged), 3)
         self.assertEqual(merged[1]["source_term"], "太玄界")
+        self.assertEqual(merged[2]["category"], "ordinary_vocabulary")
+
+    def test_glossary_prompt_does_not_hardcode_category_options(self) -> None:
+        messages = app.build_glossary_messages("第1章", "正文", [])
+        system_prompt = messages[0]["content"]
+
+        self.assertIn("AI-chosen concise category label", system_prompt)
+        self.assertNotIn("character|place|sect", system_prompt)
+
+    def test_glossary_category_ui_is_free_text(self) -> None:
+        add_row_start = app.INDEX_HTML.index("function addGlossaryRow")
+        add_row_end = app.INDEX_HTML.index("function collectGlossary")
+        add_row_script = app.INDEX_HTML[add_row_start:add_row_end]
+
+        self.assertIn('entry.category || ""', add_row_script)
+        self.assertNotIn("categories.map", add_row_script)
+        self.assertNotIn("proper_noun", add_row_script)
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

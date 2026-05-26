@@ -24,29 +24,6 @@ MODELS = {"deepseek-v4-flash", "deepseek-v4-pro"}
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 CJK_FRAGMENT_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
 
-ALLOWED_CATEGORIES = {
-    "character",
-    "place",
-    "sect",
-    "clan",
-    "organization",
-    "school",
-    "faction",
-    "realm",
-    "rank",
-    "system",
-    "worldbuilding",
-    "technique",
-    "spell",
-    "artifact",
-    "weapon",
-    "formation",
-    "pill",
-    "treasure",
-    "title",
-    "address",
-    "proper_noun",
-}
 ALLOWED_GENDERS = {"", "male", "female", "it"}
 
 
@@ -155,14 +132,12 @@ def save_glossary(entries: list[dict[str, Any]], novel: str | None = None) -> li
 def normalize_glossary_entry(entry: dict[str, Any]) -> dict[str, str]:
     source_term = str(entry.get("source_term", "")).strip()
     english_term = str(entry.get("english_term", "")).strip()
-    category = str(entry.get("category", "")).strip().lower()
+    category = re.sub(r"\s+", "_", str(entry.get("category", "")).strip().lower())
     gender = str(entry.get("gender_or_pronoun", "")).strip().lower()
 
     if not source_term or not english_term:
         return {}
     if contains_cjk(english_term):
-        return {}
-    if category not in ALLOWED_CATEGORIES:
         return {}
     if gender not in ALLOWED_GENDERS:
         gender = ""
@@ -296,7 +271,7 @@ def glossary_prompt(glossary: list[dict[str, Any]]) -> str:
     lines = []
     for entry in glossary:
         gender = entry.get("gender_or_pronoun", "")
-        detail = f"{entry['source_term']} => {entry['english_term']} [{entry['category']}]"
+        detail = f"{entry['source_term']} => {entry['english_term']}"
         if gender:
             detail += f" pronoun={gender}"
         lines.append(detail)
@@ -370,16 +345,17 @@ Return only valid JSON with:
     {{
       "source_term": "original term",
       "english_term": "consistent English rendering",
-      "category": "character|place|sect|clan|organization|school|faction|realm|rank|system|worldbuilding|technique|spell|artifact|weapon|formation|pill|treasure|title|address|proper_noun",
+      "category": "AI-chosen concise category label",
       "gender_or_pronoun": "male|female|unknown|it|"
     }}
   ]
 }}
 
-Add entries only for character names, places, sects/clans/organizations,
+Add entries for character names, places, sects/clans/organizations,
 cultivation realms/ranks/systems, recurring worldbuilding terms, techniques,
-spells, artifacts, weapons, formations, pills, treasures, special proper nouns,
-recurring address forms/titles, and inferable character gender/pronoun facts.
+spells, artifacts, weapons, materials, formations, pills, treasures, special proper nouns,
+recurring address forms/titles, inferable character gender/pronoun facts, and any any other words that needs to be kept consistent.
+Choose each category from context as a concise lowercase label.
 Do not add ordinary vocabulary, one-off descriptive phrases, full sentences,
 common verbs/adjectives/adverbs, or obvious translations unlikely to need
 consistency.
@@ -941,11 +917,6 @@ INDEX_HTML = r"""<!doctype html>
     </section>
   </main>
   <script>
-    const categories = [
-      "character","place","sect","clan","organization","school","faction",
-      "realm","rank","system","worldbuilding","technique","spell","artifact",
-      "weapon","formation","pill","treasure","title","address","proper_noun"
-    ];
     const pronouns = ["", "male", "female", "unknown", "it"];
     const state = { novel: "", file: "", busy: false };
 
@@ -1099,7 +1070,7 @@ INDEX_HTML = r"""<!doctype html>
       row.innerHTML = `
         <td><input value="${escapeAttr(entry.source_term || "")}"></td>
         <td><input value="${escapeAttr(entry.english_term || "")}"></td>
-        <td><select>${categories.map(c => `<option value="${c}" ${entry.category === c ? "selected" : ""}>${c}</option>`).join("")}</select></td>
+        <td><input value="${escapeAttr(entry.category || "")}"></td>
         <td><select>${pronouns.map(p => `<option value="${p}" ${entry.gender_or_pronoun === p ? "selected" : ""}>${p}</option>`).join("")}</select></td>
         <td><button type="button" class="danger tiny">X</button></td>
       `;
@@ -1114,8 +1085,8 @@ INDEX_HTML = r"""<!doctype html>
         return {
           source_term: inputs[0].value.trim(),
           english_term: inputs[1].value.trim(),
-          category: selects[0].value,
-          gender_or_pronoun: selects[1].value
+          category: inputs[2].value.trim(),
+          gender_or_pronoun: selects[0].value
         };
       }).filter(entry => entry.source_term && entry.english_term);
     }
@@ -1143,7 +1114,7 @@ INDEX_HTML = r"""<!doctype html>
     $("novel").addEventListener("change", () => loadChapters().catch(error => setStatus(error.message, true)));
     $("translate").addEventListener("click", translateSelected);
     $("translateOnly").addEventListener("click", translateOnlySelected);
-    $("addEntry").addEventListener("click", () => addGlossaryRow({ category: "proper_noun" }));
+    $("addEntry").addEventListener("click", () => addGlossaryRow());
     $("saveGlossary").addEventListener("click", () => saveGlossary().catch(error => setStatus(error.message, true)));
 
     Promise.all([loadConfig(), loadNovels(), loadGlossary()]).catch(error => setStatus(error.message, true));
@@ -1264,6 +1235,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.no_cache_headers()
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -1272,9 +1244,15 @@ class Handler(BaseHTTPRequestHandler):
         raw = content.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.no_cache_headers()
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def no_cache_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
 
 
 def first(query: dict[str, list[str]], key: str) -> str:
