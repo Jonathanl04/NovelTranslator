@@ -6,11 +6,14 @@ from .chapters import source_path, split_chapter, write_translation
 from .config import load_config
 from .deepseek import call_deepseek
 from .errors import AppError
+from .failure_log import log_deepseek_failure
 from .glossary import glossary_path, glossary_prompt, load_glossary, merge_glossary_entries
 from .json_store import write_json
 from .source_language import contains_source_language_text, source_language_fragments
 
 state_lock = threading.Lock()
+TRANSLATION_JSON_RETRIES = 2
+INVALID_TRANSLATION_JSON_MESSAGE = "DeepSeek message was not valid translation JSON."
 
 SHARED_PROMPT_PREFIX = """
 You are working on web novel localization into English. 
@@ -92,8 +95,9 @@ spells, artifacts, weapons, materials, formations, pills, treasures, special pro
 recurring address forms/titles, inferable character gender/pronoun facts, and any any other words that needs to be kept consistent.
 Choose each category from context as a concise lowercase label.
 Do not add ordinary vocabulary, one-off descriptive phrases, full sentences,
-common verbs/adjectives/adverbs, or obvious translations unlikely to need
+common verbs/adjectives/adverbs, chapter titles, or obvious translations unlikely to need
 consistency.
+If all glossary candidates already exists, don't add any new words.
 
 Chapter title:
 {title}
@@ -102,6 +106,27 @@ Chapter body:
 {body}
 """.strip()
     return [{"role": "system", "content": build_cached_prefix(glossary)}, {"role": "user", "content": user}]
+
+
+def deepseek_request_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": messages,
+        "thinking": {"type": "disabled"},
+        "temperature": 0.6,
+        "stream": False,
+        "response_format": {"type": "json_object"},
+    }
+
+
+def log_parse_failure(
+    event: str,
+    model: str,
+    messages: list[dict[str, str]],
+    response: dict[str, Any],
+    error: AppError,
+) -> None:
+    log_deepseek_failure(event, deepseek_request_payload(model, messages), str(error), response=response)
 
 
 def parse_translation_response(data: dict[str, Any]) -> dict[str, Any]:
@@ -270,7 +295,11 @@ def populate_glossary_for_chapter(
         glossary = load_glossary(novel)
     messages = build_glossary_messages(title, body, glossary)
     api_response = call_api(config["api_key"], config["glossary_model"], messages)
-    updates = parse_glossary_response(api_response)
+    try:
+        updates = parse_glossary_response(api_response)
+    except AppError as exc:
+        log_parse_failure("glossary_parse_error", config["glossary_model"], messages, api_response, exc)
+        raise
 
     with state_lock:
         merged = merge_glossary_entries(load_glossary(novel), updates)
@@ -295,7 +324,15 @@ def translate_chapter(
     messages = build_messages(title, body, glossary)
     api_response = call_api(config["api_key"], config["translation_model"], messages)
     try:
-        parsed = parse_translation_response(api_response)
+        for retry_index in range(TRANSLATION_JSON_RETRIES + 1):
+            try:
+                parsed = parse_translation_response(api_response)
+                break
+            except AppError as exc:
+                log_parse_failure("translation_parse_error", config["translation_model"], messages, api_response, exc)
+                if INVALID_TRANSLATION_JSON_MESSAGE not in str(exc) or retry_index == TRANSLATION_JSON_RETRIES:
+                    raise
+                api_response = call_api(config["api_key"], config["translation_model"], messages)
     except AppError as exc:
         if "still contains Chinese or Korean source-language text" not in str(exc):
             raise
@@ -310,12 +347,22 @@ def translate_chapter(
                 draft_json, parse_fragment_replacements(fragment_response)
             )
             parsed = parse_translation_response(json.loads(compact_json))
-        except (AppError, json.JSONDecodeError):
+        except (AppError, json.JSONDecodeError) as exc:
+            log_deepseek_failure(
+                "fragment_repair_parse_error",
+                deepseek_request_payload(config["translation_model"], build_fragment_repair_messages(messages, draft_json)),
+                str(exc),
+                response=locals().get("fragment_response"),
+            )
             repair_messages = build_repair_messages(title, body, draft_json)
             repair_response = call_api(
                 config["api_key"], config["translation_model"], repair_messages
             )
-            parsed = parse_translation_response(repair_response)
+            try:
+                parsed = parse_translation_response(repair_response)
+            except AppError as exc:
+                log_parse_failure("full_repair_parse_error", config["translation_model"], repair_messages, repair_response, exc)
+                raise
 
     with state_lock:
         current_glossary = load_glossary(novel)

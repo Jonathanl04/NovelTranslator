@@ -29,6 +29,15 @@ import { cn } from "@/lib/utils";
 const MODELS: Model[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 const PRONOUNS = ["__none__", "male", "female", "unknown", "it"];
 
+type BulkStatus = "pending" | "translating" | "done" | "failed";
+
+type BulkItem = {
+  filename: string;
+  title: string;
+  status: BulkStatus;
+  message?: string;
+};
+
 const emptyConfig: Config = {
   has_api_key: false,
   api_key_mask: "",
@@ -68,8 +77,18 @@ export function App() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
   const [usage, setUsage] = useState<Usage>(emptyUsage);
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
 
   const dictionaryCount = useMemo(() => glossary.length, [glossary]);
+  const bulkCounts = useMemo(
+    () => ({
+      done: bulkItems.filter((item) => item.status === "done").length,
+      failed: bulkItems.filter((item) => item.status === "failed").length,
+      pending: bulkItems.filter((item) => item.status === "pending").length,
+      translating: bulkItems.filter((item) => item.status === "translating").length,
+    }),
+    [bulkItems]
+  );
 
   const showStatus = useCallback((message: string, isError = false) => {
     setStatus(message);
@@ -189,6 +208,69 @@ export function App() {
     }
   }
 
+  async function runBulkTranslation() {
+    if (!novel || !selectedFile || busy) return;
+    const startIndex = chapters.findIndex((chapter) => chapter.filename === selectedFile);
+    if (startIndex < 0) return;
+
+    const queue = chapters.slice(startIndex).map((chapter) => ({
+      filename: chapter.filename,
+      title: chapter.title,
+      status: chapter.translated ? ("done" as const) : ("pending" as const),
+      message: chapter.translated ? "Already translated" : undefined,
+    }));
+
+    setBulkItems(queue);
+    setBusy(true);
+    showStatus(`Bulk translating ${queue.filter((item) => item.status === "pending").length} chapters...`);
+
+    try {
+      for (const item of queue) {
+        if (item.status === "done") continue;
+
+        setBulkItems((current) =>
+          current.map((currentItem) =>
+            currentItem.filename === item.filename
+              ? { ...currentItem, status: "translating", message: "Translating..." }
+              : currentItem
+          )
+        );
+
+        try {
+          const result = await api.translate(novel, item.filename);
+          setUsage(await api.usage());
+          setGlossary(result.glossary);
+          if (item.filename === selectedFile) {
+            setTranslated(result.translated);
+          }
+          setBulkItems((current) =>
+            current.map((currentItem) =>
+              currentItem.filename === item.filename
+                ? { ...currentItem, status: "done", message: "Saved" }
+                : currentItem
+            )
+          );
+          setChapters(await api.chapters(novel));
+        } catch (caught) {
+          const message = errorMessage(caught);
+          setBulkItems((current) =>
+            current.map((currentItem) =>
+              currentItem.filename === item.filename
+                ? { ...currentItem, status: "failed", message }
+                : currentItem
+            )
+          );
+          showStatus(message, true);
+          return;
+        }
+      }
+
+      showStatus("Bulk translation complete.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resetUsage() {
     try {
       setUsage(await api.resetUsage());
@@ -300,8 +382,31 @@ export function App() {
           <Button type="button" variant="outline" disabled={busy || !selectedFile} onClick={() => runTranslation("only")}>
             Translate Only
           </Button>
+          <Button type="button" variant="outline" disabled={busy || !selectedFile} onClick={runBulkTranslation}>
+            <WandSparkles />
+            Bulk Translate From Selected
+          </Button>
 
-          <ScrollArea className="mt-1 h-[calc(100vh-25.5rem)] pr-2">
+          <section className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-semibold">Bulk progress</h2>
+              <span className="text-xs text-muted-foreground">
+                {bulkCounts.done}/{bulkItems.length || 0} done
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+              <span>{bulkCounts.pending} pending</span>
+              <span>{bulkCounts.translating} active</span>
+              <span>{bulkCounts.failed} failed</span>
+            </div>
+            {bulkItems.length ? (
+              <BulkProgress items={bulkItems} />
+            ) : (
+              <div className="text-xs text-muted-foreground">Start a bulk translation to track done and pending chapters.</div>
+            )}
+          </section>
+
+          <ScrollArea className="mt-1 h-[calc(100vh-35rem)] pr-2">
             <div className="grid gap-1.5">
               {chapters.map((chapter) => (
                 <Button
@@ -466,6 +571,37 @@ function Reader({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BulkProgress({ items }: { items: BulkItem[] }) {
+  return (
+    <ScrollArea className="h-36 rounded-md border bg-background/70 pr-2">
+      <div className="grid gap-1 p-2">
+        {items.map((item) => (
+          <div key={item.filename} className="grid gap-1 rounded-md border p-2 text-xs">
+            <div className="flex items-start justify-between gap-2">
+              <span className="min-w-0 [overflow-wrap:anywhere] font-medium leading-tight">{item.title}</span>
+              <BulkBadge status={item.status} />
+            </div>
+            {item.message && <div className="text-muted-foreground [overflow-wrap:anywhere]">{item.message}</div>}
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
+  );
+}
+
+function BulkBadge({ status }: { status: BulkStatus }) {
+  if (status === "done") {
+    return <Badge className="bg-emerald-50 text-emerald-800">done</Badge>;
+  }
+  if (status === "translating") {
+    return <Badge variant="secondary">active</Badge>;
+  }
+  if (status === "failed") {
+    return <Badge variant="destructive">failed</Badge>;
+  }
+  return <Badge variant="outline">pending</Badge>;
+}
+
 function UsageSummary({
   label,
   usage,
@@ -476,7 +612,7 @@ function UsageSummary({
   prominent?: boolean;
 }) {
   return (
-    <div className={cn("grid gap-1 rounded-md border p-2", prominent && "bg-background")}> 
+    <div className={cn("grid gap-1 rounded-md border p-2", prominent && "bg-background")}>
       <div className="flex items-center justify-between gap-2 text-xs font-semibold">
         <span>{label}</span>
         <span className="tabular-nums">{formatUsd(usage.cost_usd)}</span>

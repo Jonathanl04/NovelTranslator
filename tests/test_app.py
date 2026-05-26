@@ -236,6 +236,17 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("dictionaryCount", app_source)
         self.assertIn('"word" : "words"', app_source)
 
+    def test_bulk_translation_progress_ui_is_rendered(self) -> None:
+        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("runBulkTranslation", app_source)
+        self.assertIn("Bulk Translate From Selected", app_source)
+        self.assertIn("Bulk progress", app_source)
+        self.assertIn("api.translate(novel, item.filename)", app_source)
+        self.assertIn("status: chapter.translated", app_source)
+
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -394,6 +405,78 @@ class TranslatorAppTests(unittest.TestCase):
                 )
 
             self.assertEqual(calls, ["deepseek-v4-flash"])
+
+    def test_translate_only_retries_invalid_translation_json_with_same_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
+            config = root / "translator_config.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book.json"
+            failure_log = root / "deepseek_failures.jsonl"
+            glossaries.mkdir()
+            config.write_text(
+                json.dumps(
+                    {
+                        "api_key": "secret",
+                        "translation_model": "deepseek-v4-flash",
+                        "glossary_model": "deepseek-v4-pro",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            glossary.write_text("[]", encoding="utf-8")
+            calls = []
+
+            def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
+                calls.append(json.dumps(messages, ensure_ascii=False))
+                if len(calls) < 3:
+                    return {"choices": [{"message": {"content": "not json"}}]}
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "translated_title": "Chapter 1",
+                                        "translated_body": "The Taixuan Realm.",
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ), patch.object(
+                settings, "DEEPSEEK_FAILURE_LOG", failure_log
+            ):
+                result = app.translate_chapter(
+                    "Book", "001_第1章.txt", fake_call, populate_glossary=False
+                )
+
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(calls[0], calls[1])
+            self.assertEqual(calls[1], calls[2])
+            self.assertIn("The Taixuan Realm.", result["translated"])
+            log_entries = [json.loads(line) for line in failure_log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(log_entries), 2)
+            self.assertEqual(log_entries[0]["event"], "translation_parse_error")
+            self.assertEqual(log_entries[0]["request"], log_entries[1]["request"])
+            self.assertEqual(
+                log_entries[0]["response"]["choices"][0]["message"]["content"],
+                "not json",
+            )
 
     def test_translate_only_repairs_remaining_chinese(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
