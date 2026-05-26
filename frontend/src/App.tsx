@@ -292,14 +292,25 @@ export function App() {
 
         <section className="grid min-w-0 content-start gap-3 border-l p-4 max-[1100px]:col-span-2 max-[1100px]:border-l-0 max-[1100px]:border-t">
           <Collapsible open={dictionaryOpen} onOpenChange={setDictionaryOpen}>
-            <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+            <div
+              className={cn(
+                "grid items-start gap-2",
+                dictionaryOpen ? "grid-cols-[1fr_auto]" : "grid-cols-1"
+              )}
+            >
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold">Dictionary</h2>
                 <div className="mt-0.5 text-xs text-muted-foreground">
                   {dictionaryCount} {dictionaryCount === 1 ? "word" : "words"}
                 </div>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDictionaryOpen((open) => !open)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(!dictionaryOpen && "w-full justify-center")}
+                onClick={() => setDictionaryOpen((open) => !open)}
+              >
                 {dictionaryOpen ? <ChevronRight /> : <ChevronLeft />}
                 {dictionaryOpen ? "Collapse" : "Expand"}
               </Button>
