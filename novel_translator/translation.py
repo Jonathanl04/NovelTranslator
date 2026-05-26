@@ -38,13 +38,15 @@ Korean honorifics to English. Retain common Japanese honorifics,
 such as -san and -senpai, and Korean honorifics, such as -ssi and sunbae, as
 romanized suffixes or words.
 
-Localization Style: For translation tasks, produce fluent, idiomatic English
-that reads like contemporary fiction originally written in English. Avoid
-Chinglish, dictionary calques, and mechanically repeated source-word mappings.
-Choose context-appropriate English collocations for idioms, slang, emotional
-states, traits, banter, tension, and internal monologue. Preserve concrete
-images and jokes when they work in English; otherwise localize the effect rather
-than the surface wording.
+Cultural Adaptation: Adapt idioms, cultural references, and humor to their natural, 
+culturally appropriate equivalents in the target language so they resonate correctly.
+
+Syntax & Rhythm: Preserve the original text's unique sentence structure, cadence, 
+and poetic flow as much as possible, while ensuring it sounds completely natural 
+in the target language.
+
+Handling Unsavable Nuances: If a metaphor or wordplay cannot be adapted naturally, 
+translate it for overall narrative flow rather than adding clunky translator notes.
 """.strip()
 
 
@@ -64,9 +66,6 @@ Preserve all story content.
 Write fluent, idiomatic English prose that sounds like a published web novel,
 not a literal line-by-line translation. Read the whole sentence and surrounding
 paragraph before choosing phrasing.
-The final English should read as if originally written by a native English
-speaker; avoid Chinglish, dictionary-calque phrasing, and mechanically repeated
-source-word mappings.
 For mental states, describe the actual attitude shown in context, such as
 composure, resilience, calm, optimism, or determination; do not translate them
 as awkward noun phrases, and avoid vague "good/bad" modifiers when a precise
