@@ -1,6 +1,6 @@
 # Novel Translator
 
-Local web app for translating downloaded Traditional Chinese novel chapters into English one chapter at a time.
+Local web app for translating downloaded Chinese or Korean novel chapters into English one chapter at a time.
 
 ## Features
 
@@ -10,8 +10,8 @@ Local web app for translating downloaded Traditional Chinese novel chapters into
 - Keeps a novel-specific glossary in `glossaries/<novel name>.json`.
 - Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
 - Uses DeepSeek chat completions directly, with no third-party app dependencies.
-- Rejects translation output that still contains Chinese characters instead of saving partial output.
-- Runs a compact fragment-replacement repair pass when the model leaves Chinese fragments untranslated.
+- Rejects translation output that still contains Chinese or Korean source-language text instead of saving partial output.
+- Runs a compact fragment-replacement repair pass when the model leaves Chinese or Korean fragments untranslated.
 
 ## Requirements
 
@@ -58,7 +58,7 @@ Using the same model for both can improve DeepSeek cache-hit opportunities becau
 2. Extracts glossary entries for the selected novel.
 3. Saves/merges glossary entries into `glossaries/<novel>.json`.
 4. Translates the chapter using the updated glossary.
-5. If Chinese characters remain, asks the model for compact replacements only.
+5. If Chinese or Korean source-language text remains, asks the model for compact replacements only.
 6. Falls back to a full repair pass only if compact replacement fails.
 7. Saves the final English chapter under `translated/`.
 
@@ -66,7 +66,7 @@ Using the same model for both can improve DeepSeek cache-hit opportunities becau
 
 1. Skips glossary extraction.
 2. Translates using the current novel glossary.
-3. Runs the same untranslated-Chinese validation and repair flow.
+3. Runs the same untranslated source-language validation and repair flow.
 
 ## Glossary Rules
 

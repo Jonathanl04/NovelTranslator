@@ -106,6 +106,21 @@ class TranslatorAppTests(unittest.TestCase):
         with self.assertRaises(app.AppError):
             app.parse_translation_response(payload)
 
+    def test_parse_translation_response_rejects_untranslated_korean(self) -> None:
+        payload = {
+            "translated_title": "Chapter 1",
+            "translated_body": "그는 문을 opened.",
+        }
+
+        with self.assertRaises(app.AppError):
+            app.parse_translation_response(payload)
+
+    def test_source_language_fragments_include_chinese_and_korean(self) -> None:
+        self.assertEqual(
+            app.source_language_fragments("Outside 通行 and 안녕하세요 again 通行."),
+            ["通行", "안녕하세요"],
+        )
+
     def test_merge_glossary_preserves_existing_and_ai_chosen_categories(self) -> None:
         existing = [
             {
@@ -374,6 +389,56 @@ class TranslatorAppTests(unittest.TestCase):
 
             self.assertEqual(len(calls), 2)
             self.assertIn("Outside the permitted passage area.", result["translated"])
+
+    def test_translate_only_repairs_remaining_korean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_1.txt").write_text("1\n\n문.", encoding="utf-8")
+            config = root / "translator_config.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book.json"
+            glossaries.mkdir()
+            config.write_text(
+                json.dumps(
+                    {
+                        "api_key": "secret",
+                        "translation_model": "deepseek-v4-flash",
+                        "glossary_model": "deepseek-v4-pro",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            glossary.write_text("[]", encoding="utf-8")
+            calls = []
+
+            def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
+                calls.append(messages)
+                if len(calls) == 1:
+                    return {
+                        "translated_title": "Chapter 1",
+                        "translated_body": "He opened the 문.",
+                    }
+                self.assertIn("Chinese or Korean", messages[-1]["content"])
+                return {"replacements": [{"source": "문", "replacement": "door"}]}
+
+            with patch.object(app, "OUTPUT_ROOT", output), patch.object(
+                app, "TRANSLATED_ROOT", translated
+            ), patch.object(app, "CONFIG_PATH", config), patch.object(
+                app, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                app, "GLOSSARY_ROOT", glossaries
+            ):
+                result = app.translate_chapter(
+                    "Book", "001_1.txt", fake_call, populate_glossary=False
+                )
+
+            self.assertEqual(len(calls), 2)
+            self.assertIn("He opened the door.", result["translated"])
 
     def test_fragment_repair_falls_back_to_full_repair(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

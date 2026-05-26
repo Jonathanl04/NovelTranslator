@@ -21,8 +21,14 @@ DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash"
 DEFAULT_GLOSSARY_MODEL = "deepseek-v4-flash"
 MODELS = {"deepseek-v4-flash", "deepseek-v4-pro"}
-CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
-CJK_FRAGMENT_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+SOURCE_LANGUAGE_RE = re.compile(
+    r"[\u1100-\u11ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff"
+    r"\uac00-\ud7af\uf900-\ufaff]"
+)
+SOURCE_LANGUAGE_FRAGMENT_RE = re.compile(
+    r"[\u1100-\u11ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff"
+    r"\uac00-\ud7af\uf900-\ufaff]+"
+)
 
 ALLOWED_GENDERS = {"", "male", "female", "it"}
 
@@ -137,7 +143,7 @@ def normalize_glossary_entry(entry: dict[str, Any]) -> dict[str, str]:
 
     if not source_term or not english_term:
         return {}
-    if contains_cjk(english_term):
+    if contains_source_language_text(english_term):
         return {}
     if gender not in ALLOWED_GENDERS:
         gender = ""
@@ -150,8 +156,8 @@ def normalize_glossary_entry(entry: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def contains_cjk(value: str) -> bool:
-    return bool(CJK_RE.search(value))
+def contains_source_language_text(value: str) -> bool:
+    return bool(SOURCE_LANGUAGE_RE.search(value))
 
 
 def merge_glossary_entries(
@@ -296,10 +302,10 @@ the text is a fantasy or historical setting. For example, translate 京都 as
 "The Capital" or "Imperial Capital" rather than "Kyoto" unless the context
 explicitly refers to the real-world city.
 
-Honorifics & Address: Follow source language norms. Translate Chinese
-honorifics to English, such as Senior Brother, Elder, Young Master. Retain
-common Japanese honorifics, such as -san and -senpai, and Korean honorifics,
-such as -ssi and sunbae, as romanized suffixes or words.
+Honorifics & Address: Follow source language norms. Translate Chinese and
+Korean honorifics to English. Retain common Japanese honorifics,
+such as -san and -senpai, and Korean honorifics, such as -ssi and sunbae, as
+romanized suffixes or words.
 """.strip()
 
 
@@ -317,7 +323,7 @@ def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> lis
 Task: Translate the provided chapter into English.
 Preserve meaning, tone, and all story content.
 Use established glossary entries exactly.
-Do not leave Chinese characters in the English title or body.
+Do not leave Chinese or Korean source-language text in the English title or body.
 
 Return only valid JSON with:
 {{
@@ -425,9 +431,9 @@ def parse_translation_response(data: dict[str, Any]) -> dict[str, Any]:
         raise AppError("Translation JSON is missing translated_title.", 502)
     if not isinstance(body, str) or not body.strip():
         raise AppError("Translation JSON is missing translated_body.", 502)
-    if contains_cjk(title) or contains_cjk(body):
+    if contains_source_language_text(title) or contains_source_language_text(body):
         raise AppError(
-            "Translation still contains Chinese characters; not saving partial output.",
+            "Translation still contains Chinese or Korean source-language text; not saving partial output.",
             502,
         )
 
@@ -446,10 +452,10 @@ def response_message_content(data: dict[str, Any]) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
-def cjk_fragments(value: str) -> list[str]:
+def source_language_fragments(value: str) -> list[str]:
     seen: set[str] = set()
     fragments = []
-    for match in CJK_FRAGMENT_RE.finditer(value):
+    for match in SOURCE_LANGUAGE_FRAGMENT_RE.finditer(value):
         fragment = match.group(0)
         if fragment not in seen:
             seen.add(fragment)
@@ -469,7 +475,7 @@ def context_window(value: str, fragment: str, size: int = 80) -> str:
 def build_fragment_repair_messages(
     translation_messages: list[dict[str, str]], draft_json: str
 ) -> list[dict[str, str]]:
-    fragments = cjk_fragments(draft_json)
+    fragments = source_language_fragments(draft_json)
     items = [
         {
             "fragment": fragment,
@@ -478,11 +484,11 @@ def build_fragment_repair_messages(
         for fragment in fragments
     ]
     instruction = """
-The previous translation JSON still contains untranslated Chinese fragments.
+The previous translation JSON still contains untranslated Chinese or Korean fragments.
 Using the full source context and draft translation already present in this chat,
 return only valid JSON with a replacements array.
 For each fragment, provide a natural English replacement based on context.
-Do not use Chinese Han characters in replacements.
+Do not use Chinese or Korean source-language text in replacements.
 Do not include explanations.
 """.strip()
     user = instruction + "\n\n" + json.dumps({"fragments": items}, ensure_ascii=False, indent=2)
@@ -514,7 +520,7 @@ def parse_fragment_replacements(data: dict[str, Any]) -> dict[str, str]:
             continue
         source = str(item.get("source", item.get("fragment", ""))).strip()
         replacement = str(item.get("replacement", "")).strip()
-        if source and replacement and not contains_cjk(replacement):
+        if source and replacement and not contains_source_language_text(replacement):
             parsed[source] = replacement
     if not parsed:
         raise AppError("Replacement JSON did not include usable replacements.", 502)
@@ -532,13 +538,13 @@ def build_repair_messages(title: str, body: str, draft_json: str) -> list[dict[s
     system = """
 You repair English novel translation JSON.
 Return only valid JSON with translated_title and translated_body.
-Do not leave any Chinese Han characters anywhere in those values.
-Translate remaining Chinese fragments into natural English from context.
+Do not leave any Chinese or Korean source-language text anywhere in those values.
+Translate remaining source-language fragments into natural English from context.
 Do not summarize, omit content, or rewrite unrelated translated text.
 """.strip()
     user = f"""
-This JSON translation still contains Chinese characters. Repair only the
-untranslated Chinese fragments.
+This JSON translation still contains Chinese or Korean source-language text.
+Repair only the untranslated source-language fragments.
 
 Original chapter title:
 {title}
@@ -619,7 +625,7 @@ def translate_chapter(
     try:
         parsed = parse_translation_response(api_response)
     except AppError as exc:
-        if "still contains Chinese characters" not in str(exc):
+        if "still contains Chinese or Korean source-language text" not in str(exc):
             raise
         draft_json = response_message_content(api_response)
         try:
