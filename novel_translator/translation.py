@@ -37,6 +37,14 @@ Honorifics & Address: Follow source language norms. Translate Chinese and
 Korean honorifics to English. Retain common Japanese honorifics,
 such as -san and -senpai, and Korean honorifics, such as -ssi and sunbae, as
 romanized suffixes or words.
+
+Localization Style: For translation tasks, produce fluent, idiomatic English
+that reads like contemporary fiction originally written in English. Avoid
+Chinglish, dictionary calques, and mechanically repeated source-word mappings.
+Choose context-appropriate English collocations for idioms, slang, emotional
+states, traits, banter, tension, and internal monologue. Preserve concrete
+images and jokes when they work in English; otherwise localize the effect rather
+than the surface wording.
 """.strip()
 
 
@@ -52,7 +60,21 @@ Established glossary:
 def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> list[dict[str, str]]:
     user = f"""
 Task: Translate the provided chapter into English.
-Preserve meaning, tone, and all story content.
+Preserve all story content.
+Write fluent, idiomatic English prose that sounds like a published web novel,
+not a literal line-by-line translation. Read the whole sentence and surrounding
+paragraph before choosing phrasing.
+The final English should read as if originally written by a native English
+speaker; avoid Chinglish, dictionary-calque phrasing, and mechanically repeated
+source-word mappings.
+For mental states, describe the actual attitude shown in context, such as
+composure, resilience, calm, optimism, or determination; do not translate them
+as awkward noun phrases, and avoid vague "good/bad" modifiers when a precise
+English attitude word fits better.
+You may restructure sentences, split or combine clauses, change passive voice to
+active voice, and choose natural English idioms when they preserve the original
+meaning, tone, and characterization.
+
 Use established glossary entries exactly.
 Do not leave Chinese or Korean source-language text in the English title or body.
 
