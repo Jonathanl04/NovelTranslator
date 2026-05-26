@@ -12,6 +12,7 @@ from .config import load_config, mask_key, public_config, save_config
 from .errors import AppError
 from .glossary import load_glossary, save_glossary
 from .translation import populate_glossary_for_chapter, translate_chapter
+from .usage import current_usage, reset_usage
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -32,6 +33,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/config":
                 self.handle_config(method)
+                return
+            if parsed.path == "/api/usage":
+                self.handle_usage(method)
                 return
             if method == "GET" and parsed.path == "/api/novels":
                 self.json(list_novels())
@@ -109,6 +113,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(entries, list):
             raise AppError("entries must be a list.")
         self.json(save_glossary(entries, novel))
+
+    def handle_usage(self, method: str) -> None:
+        if method == "GET":
+            self.json(current_usage())
+            return
+        if method == "POST":
+            self.json(reset_usage())
+            return
+        raise AppError("Method not allowed.", 405)
 
     def body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

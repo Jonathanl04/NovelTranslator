@@ -58,6 +58,7 @@ from novel_translator.translation import (
     response_message_content,
     translate_chapter,
 )
+from novel_translator.usage import current_usage, record_deepseek_usage, reset_usage
 
 
 if __name__ == "__main__":

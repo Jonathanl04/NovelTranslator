@@ -5,6 +5,7 @@ import type {
   GlossaryEntry,
   Model,
   TranslationResult,
+  Usage,
 } from "./types";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -21,6 +22,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   config: () => request<Config>("/api/config"),
+  usage: () => request<Usage>("/api/usage"),
+  resetUsage: () => request<Usage>("/api/usage", { method: "POST" }),
   saveConfig: (payload: {
     api_key?: string;
     keep_existing_key: boolean;

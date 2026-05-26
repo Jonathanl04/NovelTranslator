@@ -35,3 +35,17 @@ export type TranslationResult = {
   output_path: string;
   glossary: GlossaryEntry[];
 };
+
+export type UsageBucket = {
+  prompt_cache_hit_tokens: number;
+  prompt_cache_miss_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+};
+
+export type Usage = {
+  total: UsageBucket;
+  by_model: Record<Model, UsageBucket>;
+};

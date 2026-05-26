@@ -5,6 +5,7 @@ from typing import Any
 
 from . import settings
 from .errors import AppError
+from .usage import record_deepseek_usage
 
 
 def call_deepseek(
@@ -40,6 +41,10 @@ def call_deepseek(
         raise AppError(f"DeepSeek request failed: {exc.reason}", 502) from exc
 
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise AppError("DeepSeek returned invalid API JSON.", 502) from exc
+
+    if isinstance(data, dict):
+        record_deepseek_usage(model, data)
+    return data

@@ -93,6 +93,49 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(parsed["translated_title"], "Chapter 1")
         self.assertEqual(parsed["translated_body"], "Body")
 
+    def test_records_and_resets_deepseek_usage_cost(self) -> None:
+        app.reset_usage()
+
+        app.record_deepseek_usage(
+            "deepseek-v4-flash",
+            {
+                "usage": {
+                    "prompt_cache_hit_tokens": 100,
+                    "prompt_cache_miss_tokens": 200,
+                    "prompt_tokens": 300,
+                    "completion_tokens": 400,
+                    "total_tokens": 700,
+                }
+            },
+        )
+        app.record_deepseek_usage(
+            "deepseek-v4-pro",
+            {
+                "usage": {
+                    "prompt_cache_hit_tokens": 10,
+                    "prompt_cache_miss_tokens": 20,
+                    "prompt_tokens": 30,
+                    "completion_tokens": 40,
+                    "total_tokens": 70,
+                }
+            },
+        )
+
+        usage = app.current_usage()
+        flash = usage["by_model"]["deepseek-v4-flash"]
+        pro = usage["by_model"]["deepseek-v4-pro"]
+        self.assertEqual(flash["prompt_cache_hit_tokens"], 100)
+        self.assertEqual(flash["prompt_cache_miss_tokens"], 200)
+        self.assertEqual(flash["prompt_tokens"], 300)
+        self.assertEqual(flash["completion_tokens"], 400)
+        self.assertEqual(flash["total_tokens"], 700)
+        self.assertEqual(flash["cost_usd"], 0.00014028)
+        self.assertEqual(pro["total_tokens"], 70)
+        self.assertEqual(pro["cost_usd"], 0.00004354)
+        self.assertEqual(usage["total"]["total_tokens"], 770)
+        self.assertEqual(usage["total"]["cost_usd"], 0.00018382)
+        self.assertEqual(app.reset_usage()["total"]["total_tokens"], 0)
+
     def test_parse_translation_response_rejects_malformed_json(self) -> None:
         payload = {"choices": [{"message": {"content": "not json"}}]}
 

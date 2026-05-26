@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, Plus, Save, Trash2, WandSparkles } from "lucide-react";
 import { api } from "./api";
-import type { Chapter, Config, GlossaryEntry, Model } from "./types";
+import type { Chapter, Config, GlossaryEntry, Model, Usage, UsageBucket } from "./types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
@@ -36,6 +36,23 @@ const emptyConfig: Config = {
   glossary_model: "deepseek-v4-flash",
 };
 
+const emptyUsageBucket: UsageBucket = {
+  prompt_cache_hit_tokens: 0,
+  prompt_cache_miss_tokens: 0,
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+  cost_usd: 0,
+};
+
+const emptyUsage: Usage = {
+  total: emptyUsageBucket,
+  by_model: {
+    "deepseek-v4-flash": emptyUsageBucket,
+    "deepseek-v4-pro": emptyUsageBucket,
+  },
+};
+
 export function App() {
   const [config, setConfig] = useState<Config>(emptyConfig);
   const [apiKey, setApiKey] = useState("");
@@ -50,6 +67,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
+  const [usage, setUsage] = useState<Usage>(emptyUsage);
 
   const dictionaryCount = useMemo(() => glossary.length, [glossary]);
 
@@ -105,10 +123,11 @@ export function App() {
 
     async function boot() {
       try {
-        const [nextConfig, nextNovels] = await Promise.all([api.config(), api.novels()]);
+        const [nextConfig, nextNovels, nextUsage] = await Promise.all([api.config(), api.novels(), api.usage()]);
         if (!active) return;
         setConfig(nextConfig);
         setNovels(nextNovels);
+        setUsage(nextUsage);
         if (nextNovels[0]) {
           await loadChapters(nextNovels[0]);
         }
@@ -146,6 +165,7 @@ export function App() {
     showStatus(mode === "full" ? "Populating glossary, then translating..." : "Translating with current glossary...");
     try {
       const result = mode === "full" ? await api.translate(novel, selectedFile) : await api.translateOnly(novel, selectedFile);
+      setUsage(await api.usage());
       setTranslated(result.translated);
       setGlossary(result.glossary);
       const file = result.filename;
@@ -164,6 +184,15 @@ export function App() {
       const saved = await api.saveGlossary(novel, cleanGlossary(glossary));
       setGlossary(saved);
       showStatus("Glossary saved.");
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    }
+  }
+
+  async function resetUsage() {
+    try {
+      setUsage(await api.resetUsage());
+      showStatus("Token usage reset.");
     } catch (caught) {
       showStatus(errorMessage(caught), true);
     }
@@ -236,6 +265,18 @@ export function App() {
             onChange={(translation_model) => setConfig((current) => ({ ...current, translation_model }))}
           />
 
+          <section className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-semibold">Token usage</h2>
+              <Button type="button" variant="outline" size="sm" onClick={resetUsage}>
+                Reset
+              </Button>
+            </div>
+            <UsageSummary label="Flash" usage={usage.by_model["deepseek-v4-flash"]} />
+            <UsageSummary label="Pro" usage={usage.by_model["deepseek-v4-pro"]} />
+            <UsageSummary label="Total" usage={usage.total} prominent />
+          </section>
+
           <div className="grid gap-1.5">
             <Label>Novel</Label>
             <Select value={novel} onValueChange={(value) => loadChapters(value).catch((caught) => showStatus(errorMessage(caught), true))}>
@@ -260,7 +301,7 @@ export function App() {
             Translate Only
           </Button>
 
-          <ScrollArea className="mt-1 h-[calc(100vh-16.25rem)] pr-2">
+          <ScrollArea className="mt-1 h-[calc(100vh-25.5rem)] pr-2">
             <div className="grid gap-1.5">
               {chapters.map((chapter) => (
                 <Button
@@ -425,6 +466,35 @@ function Reader({ label, value }: { label: string; value: string }) {
   );
 }
 
+function UsageSummary({
+  label,
+  usage,
+  prominent = false,
+}: {
+  label: string;
+  usage: UsageBucket;
+  prominent?: boolean;
+}) {
+  return (
+    <div className={cn("grid gap-1 rounded-md border p-2", prominent && "bg-background")}> 
+      <div className="flex items-center justify-between gap-2 text-xs font-semibold">
+        <span>{label}</span>
+        <span className="tabular-nums">{formatUsd(usage.cost_usd)}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+        <span>Input hit</span>
+        <span className="text-right tabular-nums">{formatInteger(usage.prompt_cache_hit_tokens)}</span>
+        <span>Input miss</span>
+        <span className="text-right tabular-nums">{formatInteger(usage.prompt_cache_miss_tokens)}</span>
+        <span>Output</span>
+        <span className="text-right tabular-nums">{formatInteger(usage.completion_tokens)}</span>
+        <span>Total tokens</span>
+        <span className="text-right tabular-nums">{formatInteger(usage.total_tokens)}</span>
+      </div>
+    </div>
+  );
+}
+
 function cleanGlossary(entries: GlossaryEntry[]) {
   return entries
     .map((entry) => ({
@@ -438,4 +508,17 @@ function cleanGlossary(entries: GlossaryEntry[]) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat().format(value);
+}
+
+function formatUsd(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  }).format(value);
 }
