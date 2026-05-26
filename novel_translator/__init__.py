@@ -1,0 +1,1 @@
+"""Novel Translator backend package."""

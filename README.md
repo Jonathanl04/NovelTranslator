@@ -9,29 +9,51 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 - Saves translated chapters to `translated/<novel name>/<same filename>`.
 - Keeps a novel-specific glossary in `glossaries/<novel name>.json`.
 - Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
-- Uses DeepSeek chat completions directly, with no third-party app dependencies.
+- Uses DeepSeek chat completions directly from the Python backend.
+- Uses a Vite React frontend with shadcn/ui components.
 - Rejects translation output that still contains Chinese or Korean source-language text instead of saving partial output.
 - Runs a compact fragment-replacement repair pass when the model leaves Chinese or Korean fragments untranslated.
 
 ## Requirements
 
 - Python 3.11 or newer.
+- Node.js 22.22.2, 24.15.0, 26.0.0, or newer for frontend development. The current app also builds on Node 24.12.0 with an npm engine warning from a transitive CLI package.
 - A DeepSeek API key.
 
-The app uses only the Python standard library.
+The backend uses only the Python standard library.
 
 ## Setup
 
 Start the local app:
 
 ```powershell
-python app.py --host 127.0.0.1 --port 8765
+.\run_app.ps1
 ```
 
 Open:
 
 ```text
 http://127.0.0.1:8765
+```
+
+Optional flags:
+
+```powershell
+.\run_app.ps1 -Port 8770
+.\run_app.ps1 -SkipBuild
+```
+
+For frontend development with hot reload, run the backend on port `8765`, then in another terminal:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173
 ```
 
 Paste your DeepSeek API key in the UI and click `Save`. The key is stored locally in `translator_config.json`, which is ignored by git.
@@ -93,7 +115,9 @@ The app asks DeepSeek to add only terms that need consistency, such as:
 ## Project Layout
 
 ```text
-app.py                 Local web app and DeepSeek integration
+app.py                 Compatibility entry point for running/importing the app
+novel_translator/      Python backend modules, local API, and DeepSeek integration
+frontend/              Vite React frontend with shadcn/ui components
 scraper/download_uukanshu.py UU看書 chapter downloader
 output/                Downloaded source chapters, ignored by git
 translated/            Translated chapters
@@ -118,4 +142,6 @@ Run:
 
 ```powershell
 python -m unittest
+cd frontend
+npm run build
 ```

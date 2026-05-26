@@ -1,0 +1,108 @@
+from pathlib import Path
+from typing import Any
+
+from . import settings
+from .errors import AppError
+from .source_language import contains_source_language_text
+
+
+def safe_segment(value: str, label: str) -> str:
+    value = value.strip()
+    if not value or "/" in value or "\\" in value or value in {".", ".."}:
+        raise AppError(f"Invalid {label}.")
+    return value
+
+
+def list_novels(output_root: Path | None = None) -> list[str]:
+    output_root = output_root or settings.OUTPUT_ROOT
+    if not output_root.exists():
+        return []
+    return sorted(item.name for item in output_root.iterdir() if item.is_dir())
+
+
+def source_path(novel: str, filename: str, output_root: Path | None = None) -> Path:
+    output_root = output_root or settings.OUTPUT_ROOT
+    novel = safe_segment(novel, "novel")
+    filename = safe_segment(filename, "chapter")
+    if not filename.lower().endswith(".txt"):
+        raise AppError("Chapter must be a .txt file.")
+    path = output_root / novel / filename
+    if not path.exists() or not path.is_file():
+        raise AppError("Chapter not found.", 404)
+    return path
+
+
+def translated_path(
+    novel: str, filename: str, translated_root: Path | None = None
+) -> Path:
+    translated_root = translated_root or settings.TRANSLATED_ROOT
+    novel = safe_segment(novel, "novel")
+    filename = safe_segment(filename, "chapter")
+    return translated_root / novel / filename
+
+
+def list_chapters(
+    novel: str,
+    output_root: Path | None = None,
+    translated_root: Path | None = None,
+) -> list[dict[str, Any]]:
+    output_root = output_root or settings.OUTPUT_ROOT
+    translated_root = translated_root or settings.TRANSLATED_ROOT
+    novel = safe_segment(novel, "novel")
+    novel_dir = output_root / novel
+    if not novel_dir.exists() or not novel_dir.is_dir():
+        raise AppError("Novel not found.", 404)
+
+    chapters = []
+    for path in sorted(novel_dir.glob("*.txt")):
+        target = translated_path(novel, path.name, translated_root)
+        chapters.append(
+            {
+                "filename": path.name,
+                "title": chapter_label(path.name, target),
+                "translated": target.exists(),
+                "source_size": path.stat().st_size,
+                "translated_size": target.stat().st_size if target.exists() else 0,
+            }
+        )
+    return chapters
+
+
+def chapter_label(filename: str, translated_file: Path | None = None) -> str:
+    prefix = Path(filename).stem.split("_", 1)[0]
+    if translated_file and translated_file.exists():
+        try:
+            title, _ = split_chapter(translated_file.read_text(encoding="utf-8"))
+            if title and not contains_source_language_text(title):
+                return f"{prefix} {title}" if prefix and not title.startswith(prefix) else title
+        except AppError:
+            pass
+    return Path(filename).stem.replace("_", " ", 1)
+
+
+def read_chapter(novel: str, filename: str) -> dict[str, Any]:
+    source = source_path(novel, filename)
+    target = translated_path(novel, filename)
+    return {
+        "filename": filename,
+        "source": source.read_text(encoding="utf-8"),
+        "translated": target.read_text(encoding="utf-8") if target.exists() else "",
+        "translated_exists": target.exists(),
+    }
+
+
+def split_chapter(text: str) -> tuple[str, str]:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        raise AppError("Chapter is empty.")
+    if "\n" not in normalized:
+        return normalized, ""
+    title, body = normalized.split("\n", 1)
+    return title.strip(), body.strip()
+
+
+def write_translation(novel: str, filename: str, title: str, body: str) -> Path:
+    target = translated_path(novel, filename)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(f"{title}\n\n{body}\n", encoding="utf-8")
+    return target

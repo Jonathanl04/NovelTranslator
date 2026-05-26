@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app
+from novel_translator import settings
 
 
 class TranslatorAppTests(unittest.TestCase):
@@ -60,6 +61,7 @@ class TranslatorAppTests(unittest.TestCase):
             chapters = app.list_chapters("Book", output, translated)
 
             self.assertEqual(chapters[0]["filename"], "001_Chapter.txt")
+            self.assertEqual(chapters[0]["title"], "001 Chapter 1")
             self.assertTrue(chapters[0]["translated"])
 
     def test_translated_path_preserves_layout(self) -> None:
@@ -166,13 +168,30 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertNotIn("character|place|sect", user_prompt)
 
     def test_glossary_category_ui_is_free_text(self) -> None:
-        add_row_start = app.INDEX_HTML.index("function addGlossaryRow")
-        add_row_end = app.INDEX_HTML.index("function collectGlossary")
-        add_row_script = app.INDEX_HTML[add_row_start:add_row_end]
+        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn('entry.category || ""', add_row_script)
-        self.assertNotIn("categories.map", add_row_script)
-        self.assertNotIn("proper_noun", add_row_script)
+        self.assertIn("entry.category", app_source)
+        self.assertNotIn("categories.map", app_source)
+        self.assertNotIn("proper_noun", app_source)
+
+    def test_dictionary_panel_is_collapsible(self) -> None:
+        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Collapsible", app_source)
+        self.assertIn("setDictionaryOpen", app_source)
+        self.assertIn("grid-cols-[300px_minmax(0,1fr)_150px]", app_source)
+
+    def test_dictionary_word_count_is_rendered(self) -> None:
+        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("dictionaryCount", app_source)
+        self.assertIn('"word" : "words"', app_source)
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -194,8 +213,8 @@ class TranslatorAppTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.object(app, "GLOSSARY_PATH", global_glossary), patch.object(
-                app, "GLOSSARY_ROOT", glossaries
+            with patch.object(settings, "GLOSSARY_PATH", global_glossary), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
             ):
                 self.assertEqual(app.load_glossary("Book"), [])
                 app.save_glossary(
@@ -257,12 +276,12 @@ class TranslatorAppTests(unittest.TestCase):
                     "translated_body": "The Taixuan Realm.",
                 }
 
-            with patch.object(app, "OUTPUT_ROOT", output), patch.object(
-                app, "TRANSLATED_ROOT", translated
-            ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", global_glossary
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
             ), patch.object(
-                app, "GLOSSARY_ROOT", glossaries
+                settings, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter("Book", "001_第1章.txt", fake_call)
 
@@ -320,12 +339,12 @@ class TranslatorAppTests(unittest.TestCase):
                     "translated_body": "The Taixuan Realm.",
                 }
 
-            with patch.object(app, "OUTPUT_ROOT", output), patch.object(
-                app, "TRANSLATED_ROOT", translated
-            ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", global_glossary
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
             ), patch.object(
-                app, "GLOSSARY_ROOT", glossaries
+                settings, "GLOSSARY_ROOT", glossaries
             ):
                 app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
@@ -376,12 +395,12 @@ class TranslatorAppTests(unittest.TestCase):
                     ]
                 }
 
-            with patch.object(app, "OUTPUT_ROOT", output), patch.object(
-                app, "TRANSLATED_ROOT", translated
-            ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", global_glossary
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
             ), patch.object(
-                app, "GLOSSARY_ROOT", glossaries
+                settings, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
@@ -426,12 +445,12 @@ class TranslatorAppTests(unittest.TestCase):
                 self.assertIn("Chinese or Korean", messages[-1]["content"])
                 return {"replacements": [{"source": "문", "replacement": "door"}]}
 
-            with patch.object(app, "OUTPUT_ROOT", output), patch.object(
-                app, "TRANSLATED_ROOT", translated
-            ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", global_glossary
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
             ), patch.object(
-                app, "GLOSSARY_ROOT", glossaries
+                settings, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter(
                     "Book", "001_1.txt", fake_call, populate_glossary=False
@@ -483,12 +502,12 @@ class TranslatorAppTests(unittest.TestCase):
                     "translated_body": "A streak of escape light.",
                 }
 
-            with patch.object(app, "OUTPUT_ROOT", output), patch.object(
-                app, "TRANSLATED_ROOT", translated
-            ), patch.object(app, "CONFIG_PATH", config), patch.object(
-                app, "GLOSSARY_PATH", global_glossary
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
             ), patch.object(
-                app, "GLOSSARY_ROOT", glossaries
+                settings, "GLOSSARY_ROOT", glossaries
             ):
                 result = app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
