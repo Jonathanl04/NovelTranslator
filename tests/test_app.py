@@ -27,6 +27,8 @@ class TranslatorAppTests(unittest.TestCase):
 
         self.assertTrue(translation.startswith(app.SHARED_PROMPT_PREFIX))
         self.assertTrue(glossary_messages.startswith(app.SHARED_PROMPT_PREFIX))
+        self.assertEqual(translation, glossary_messages)
+        self.assertIn("Taixuan Realm", translation)
 
     def test_glossary_prompt_omits_category_annotation(self) -> None:
         glossary = [
@@ -143,10 +145,10 @@ class TranslatorAppTests(unittest.TestCase):
 
     def test_glossary_prompt_does_not_hardcode_category_options(self) -> None:
         messages = app.build_glossary_messages("第1章", "正文", [])
-        system_prompt = messages[0]["content"]
+        user_prompt = messages[1]["content"]
 
-        self.assertIn("AI-chosen concise category label", system_prompt)
-        self.assertNotIn("character|place|sect", system_prompt)
+        self.assertIn("AI-chosen concise category label", user_prompt)
+        self.assertNotIn("character|place|sect", user_prompt)
 
     def test_glossary_category_ui_is_free_text(self) -> None:
         add_row_start = app.INDEX_HTML.index("function addGlossaryRow")
@@ -297,7 +299,7 @@ class TranslatorAppTests(unittest.TestCase):
 
             def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
                 calls.append(model)
-                self.assertIn("Taixuan Realm", messages[1]["content"])
+                self.assertIn("Taixuan Realm", messages[0]["content"])
                 return {
                     "translated_title": "Chapter 1",
                     "translated_body": "The Taixuan Realm.",

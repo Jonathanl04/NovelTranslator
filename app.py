@@ -279,8 +279,8 @@ def glossary_prompt(glossary: list[dict[str, Any]]) -> str:
 
 
 SHARED_PROMPT_PREFIX = """
-You are working on Traditional Chinese web novel localization into natural
-English. Apply these rules consistently.
+You are working on web novel localization into English. 
+Apply these rules consistently.
 
 Context over Dictionary: Always deduce the entity type and domain from the
 provided context, including surrounding text and sibling terms in a cluster.
@@ -303,10 +303,17 @@ such as -ssi and sunbae, as romanized suffixes or words.
 """.strip()
 
 
-def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> list[dict[str, str]]:
-    system = f"""
+def build_cached_prefix(glossary: list[dict[str, Any]]) -> str:
+    return f"""
 {SHARED_PROMPT_PREFIX}
 
+Established glossary:
+{glossary_prompt(glossary)}
+""".strip()
+
+
+def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> list[dict[str, str]]:
+    user = f"""
 Task: Translate the provided chapter into English.
 Preserve meaning, tone, and all story content.
 Use established glossary entries exactly.
@@ -317,10 +324,6 @@ Return only valid JSON with:
   "translated_title": "English title",
   "translated_body": "English body with paragraph breaks"
 }}
-""".strip()
-    user = f"""
-Established glossary:
-{glossary_prompt(glossary)}
 
 Chapter title:
 {title}
@@ -328,15 +331,13 @@ Chapter title:
 Chapter body:
 {body}
 """.strip()
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return [{"role": "system", "content": build_cached_prefix(glossary)}, {"role": "user", "content": user}]
 
 
 def build_glossary_messages(
     title: str, body: str, glossary: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
-    system = f"""
-{SHARED_PROMPT_PREFIX}
-
+    user = f"""
 Task: Extract glossary entries from the provided chapter.
 
 Return only valid JSON with:
@@ -359,10 +360,6 @@ Choose each category from context as a concise lowercase label.
 Do not add ordinary vocabulary, one-off descriptive phrases, full sentences,
 common verbs/adjectives/adverbs, or obvious translations unlikely to need
 consistency.
-""".strip()
-    user = f"""
-Existing glossary entries to preserve:
-{glossary_prompt(glossary)}
 
 Chapter title:
 {title}
@@ -370,7 +367,7 @@ Chapter title:
 Chapter body:
 {body}
 """.strip()
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return [{"role": "system", "content": build_cached_prefix(glossary)}, {"role": "user", "content": user}]
 
 
 def call_deepseek(
