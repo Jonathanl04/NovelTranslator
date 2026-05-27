@@ -4,7 +4,7 @@ from typing import Any
 
 from .chapters import source_path, split_chapter, write_translation
 from .config import load_config
-from .deepseek import call_deepseek
+from .deepseek import DEEPSEEK_TIMEOUT_MESSAGE, call_deepseek
 from .errors import AppError
 from .failure_log import log_deepseek_failure
 from .glossary import glossary_path, glossary_prompt, load_glossary, merge_glossary_entries
@@ -148,6 +148,10 @@ def log_parse_failure(
     error: AppError,
 ) -> None:
     log_deepseek_failure(event, deepseek_request_payload(model, messages), str(error), response=response)
+
+
+def is_retryable_translation_timeout(error: AppError) -> bool:
+    return DEEPSEEK_TIMEOUT_MESSAGE in str(error)
 
 
 def parse_translation_response(data: dict[str, Any]) -> dict[str, Any]:
@@ -360,9 +364,16 @@ def translate_chapter(
     glossary = populate_glossary_for_chapter(novel, filename, call_api) if populate_glossary else load_glossary(novel)
     messages = build_messages(title, body, glossary)
     retry_messages = messages
-    api_response = call_api(config["api_key"], config["translation_model"], messages)
     try:
         for retry_index in range(TRANSLATION_JSON_RETRIES + 1):
+            try:
+                api_response = call_api(
+                    config["api_key"], config["translation_model"], retry_messages
+                )
+            except AppError as exc:
+                if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
+                    raise
+                continue
             try:
                 parsed = parse_translation_response(api_response)
                 break
@@ -373,7 +384,6 @@ def translate_chapter(
                 retry_messages = build_invalid_translation_json_retry_messages(
                     retry_messages, response_message_content(api_response)
                 )
-                api_response = call_api(config["api_key"], config["translation_model"], retry_messages)
     except AppError as exc:
         if "still contains Chinese or Korean source-language text" not in str(exc):
             raise

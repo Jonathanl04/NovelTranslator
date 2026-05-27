@@ -9,6 +9,10 @@ from .failure_log import log_deepseek_failure
 from .usage import record_deepseek_usage
 
 
+DEEPSEEK_TIMEOUT_SECONDS = 300
+DEEPSEEK_TIMEOUT_MESSAGE = "DeepSeek request timed out."
+
+
 def call_deepseek(
     api_key: str,
     model: str,
@@ -33,13 +37,19 @@ def call_deepseek(
         method="POST",
     )
     try:
-        with opener(request, timeout=180) as response:
+        with opener(request, timeout=DEEPSEEK_TIMEOUT_SECONDS) as response:
             raw = response.read().decode("utf-8")
+    except TimeoutError as exc:
+        log_deepseek_failure("timeout", payload, str(exc) or DEEPSEEK_TIMEOUT_MESSAGE)
+        raise AppError(DEEPSEEK_TIMEOUT_MESSAGE, 502) from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         log_deepseek_failure("http_error", payload, f"HTTP {exc.code}", raw_response=detail)
         raise AppError(f"DeepSeek request failed: HTTP {exc.code} {detail}", 502) from exc
     except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            log_deepseek_failure("timeout", payload, str(exc.reason) or DEEPSEEK_TIMEOUT_MESSAGE)
+            raise AppError(DEEPSEEK_TIMEOUT_MESSAGE, 502) from exc
         log_deepseek_failure("url_error", payload, str(exc.reason))
         raise AppError(f"DeepSeek request failed: {exc.reason}", 502) from exc
 

@@ -203,6 +203,24 @@ class TranslatorAppTests(unittest.TestCase):
         with self.assertRaises(app.AppError):
             app.parse_translation_response(payload)
 
+    def test_call_deepseek_uses_300_second_timeout(self) -> None:
+        from novel_translator.deepseek import DEEPSEEK_TIMEOUT_SECONDS
+
+        seen = {}
+
+        def fake_opener(request, timeout: int):
+            seen["timeout"] = timeout
+            raise TimeoutError("The read operation timed out")
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "DEEPSEEK_FAILURE_LOG", Path(tmp) / "deepseek_failures.jsonl"
+        ):
+            with self.assertRaises(app.AppError):
+                app.call_deepseek("secret", "deepseek-v4-flash", [], fake_opener)
+
+        self.assertEqual(DEEPSEEK_TIMEOUT_SECONDS, 300)
+        self.assertEqual(seen["timeout"], 300)
+
     def test_parse_translation_response_rejects_untranslated_chinese(self) -> None:
         payload = {
             "translated_title": "Chapter 1",
@@ -551,6 +569,71 @@ class TranslatorAppTests(unittest.TestCase):
                 log_entries[0]["response"]["choices"][0]["message"]["content"],
                 "not json",
             )
+
+    def test_translate_only_retries_timeout_with_same_messages_and_shared_retry_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book" / "source"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
+            config = root / "translator_config.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "api_key": "secret",
+                        "translation_model": "deepseek-v4-flash",
+                        "glossary_model": "deepseek-v4-pro",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            glossary.write_text("[]", encoding="utf-8")
+            calls = []
+
+            def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
+                calls.append(json.dumps(messages, ensure_ascii=False))
+                if len(calls) == 1:
+                    raise app.AppError("DeepSeek request timed out.", 502)
+                if len(calls) == 2:
+                    return {"choices": [{"message": {"content": "not json"}}]}
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "translated_title": "Chapter 1",
+                                        "translated_body": "The Taixuan Realm.",
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ):
+                result = app.translate_chapter(
+                    "Book", "001_第1章.txt", fake_call, populate_glossary=False
+                )
+
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(calls[1], calls[0])
+            third_messages = json.loads(calls[2])
+            self.assertEqual(third_messages[:2], json.loads(calls[0]))
+            self.assertEqual(third_messages[2], {"role": "assistant", "content": "not json"})
+            self.assertIn("The Taixuan Realm.", result["translated"])
 
     def test_translate_only_repairs_remaining_chinese(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
