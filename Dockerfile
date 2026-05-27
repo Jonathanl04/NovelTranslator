@@ -28,6 +28,7 @@ RUN mkdir -p /data/output /data/translated /data/glossaries /data/logs \
     && chown -R appuser:appuser /app /data
 
 USER appuser
+RUN patchright install chromium
 
 EXPOSE 8765
 

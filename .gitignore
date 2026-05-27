@@ -10,3 +10,5 @@ translator_config.json
 glossary.json
 glossaries/
 logs/
+
+.venv

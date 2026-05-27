@@ -5,6 +5,7 @@ services:
     environment:
       NOVEL_TRANSLATOR_DATA_DIR: /data
       NOVEL_TRANSLATOR_CONFIG_PATH: /data/config/translator_config.json
+      NOVEL_TRANSLATOR_OUTPUT_ROOT: /data/output
     ports:
       - "8765:8765"
     volumes:
@@ -12,5 +13,4 @@ services:
       - ./translated:/data/translated
       - ./glossaries:/data/glossaries
       - ./logs:/data/logs
-      - ./docker-data:/data/config
     restart: unless-stopped
