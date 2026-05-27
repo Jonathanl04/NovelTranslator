@@ -18,13 +18,17 @@ def list_novels(output_root: Path | None = None) -> list[str]:
     output_root = output_root or settings.OUTPUT_ROOT
     if not output_root.exists():
         return []
-    return sorted(item.name for item in output_root.iterdir() if item.is_dir())
+    return sorted(
+        item.name
+        for item in output_root.iterdir()
+        if item.is_dir() and (item / "source").is_dir()
+    )
 
 
 def cover_path(novel: str, output_root: Path | None = None) -> Path | None:
     output_root = output_root or settings.OUTPUT_ROOT
     novel = safe_segment(novel, "novel")
-    novel_dir = output_root / novel
+    novel_dir = output_root / novel / "source"
     if not novel_dir.exists() or not novel_dir.is_dir():
         raise AppError("Novel not found.", 404)
 
@@ -50,7 +54,7 @@ def source_path(novel: str, filename: str, output_root: Path | None = None) -> P
     filename = safe_segment(filename, "chapter")
     if not filename.lower().endswith(".txt"):
         raise AppError("Chapter must be a .txt file.")
-    path = output_root / novel / filename
+    path = output_root / novel / "source" / filename
     if not path.exists() or not path.is_file():
         raise AppError("Chapter not found.", 404)
     return path
@@ -62,7 +66,7 @@ def translated_path(
     translated_root = translated_root or settings.TRANSLATED_ROOT
     novel = safe_segment(novel, "novel")
     filename = safe_segment(filename, "chapter")
-    return translated_root / novel / filename
+    return translated_root / novel / "translated" / filename
 
 
 def list_chapters(
@@ -73,7 +77,7 @@ def list_chapters(
     output_root = output_root or settings.OUTPUT_ROOT
     translated_root = translated_root or settings.TRANSLATED_ROOT
     novel = safe_segment(novel, "novel")
-    novel_dir = output_root / novel
+    novel_dir = output_root / novel / "source"
     if not novel_dir.exists() or not novel_dir.is_dir():
         raise AppError("Novel not found.", 404)
 

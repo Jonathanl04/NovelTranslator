@@ -4,13 +4,9 @@ services:
       context: .
     environment:
       NOVEL_TRANSLATOR_DATA_DIR: /data
-      NOVEL_TRANSLATOR_CONFIG_PATH: /data/config/translator_config.json
-      NOVEL_TRANSLATOR_OUTPUT_ROOT: /data/output
+      NOVEL_TRANSLATOR_CONFIG_PATH: /data/translator_config.json
     ports:
       - "8765:8765"
     volumes:
-      - ./output:/data/output
-      - ./translated:/data/translated
-      - ./glossaries:/data/glossaries
-      - ./logs:/data/logs
+      - ./data:/data
     restart: unless-stopped

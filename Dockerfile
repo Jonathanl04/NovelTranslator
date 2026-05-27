@@ -24,7 +24,7 @@ COPY novel_translator/ ./novel_translator/
 COPY scraper/ ./scraper/
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
-RUN mkdir -p /data/output /data/translated /data/glossaries /data/logs \
+RUN mkdir -p /data/logs \
     && chown -R appuser:appuser /app /data
 
 USER appuser

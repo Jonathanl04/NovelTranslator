@@ -4,11 +4,11 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 
 ## Features
 
-- Lists novels from `output/<novel name>/`.
+- Lists novels from `data/<novel name>/source/`.
 - Translates one selected `.txt` chapter at a time.
-- Saves translated chapters to `translated/<novel name>/<same filename>`.
+- Saves translated chapters to `data/<novel name>/translated/<same filename>`.
 - Exports translated chapters to EPUB with a linked table of contents and the downloaded cover image.
-- Keeps a novel-specific glossary in `glossaries/<novel name>.json`.
+- Keeps a novel-specific glossary in `data/<novel name>/glossary/glossary.json`.
 - Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
 - Uses DeepSeek chat completions directly from the Python backend.
 - Uses a Vite React frontend with shadcn/ui components.
@@ -58,7 +58,7 @@ Open:
 http://127.0.0.1:5173
 ```
 
-Paste your DeepSeek API key in the UI and click `Save`. The key is stored locally in `translator_config.json`, which is ignored by git.
+Paste your DeepSeek API key in the UI and click `Save`. The key is stored locally in `data/translator_config.json`, which is ignored by git.
 
 ## Docker
 
@@ -74,15 +74,9 @@ Open:
 http://127.0.0.1:8765
 ```
 
-The compose file mounts local data folders into the container:
+The compose file mounts local `data/` into the container. It contains each novel's `source/`, `translated/`, and `glossary/` folders, plus `logs/` and `translator_config.json`.
 
-- `output/` for downloaded source chapters.
-- `translated/` for translated chapters and EPUB exports.
-- `glossaries/` for novel glossaries.
-- `logs/` for DeepSeek failure logs.
-- `docker-data/translator_config.json` for Docker-specific API key and model settings.
-
-The scraper scripts and their Python dependencies are included in the image. The image installs `scrapling[fetchers]` and runs `scrapling install` so `StealthyFetcher` has its browser dependencies. Run the scrapers through Compose so downloaded chapters land in the mounted `output/` folder:
+The scraper scripts and their Python dependencies are included in the image. The image installs `scrapling[fetchers]` and runs `scrapling install` so `StealthyFetcher` has its browser dependencies. Run the scrapers through Compose so downloaded chapters land under `data/<book name>/source/`:
 
 ```powershell
 docker compose run --rm novel-translator python scraper/download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
@@ -109,11 +103,11 @@ Using the same model for both can improve DeepSeek cache-hit opportunities becau
 
 1. Reads the selected source chapter.
 2. Extracts glossary entries for the selected novel.
-3. Saves/merges glossary entries into `glossaries/<novel>.json`.
+3. Saves/merges glossary entries into `data/<novel>/glossary/glossary.json`.
 4. Translates the chapter using the updated glossary.
 5. If Chinese or Korean source-language text remains, asks the model for compact replacements only.
 6. Falls back to a full repair pass only if compact replacement fails.
-7. Saves the final English chapter under `translated/`.
+7. Saves the final English chapter under `data/<novel>/translated/`.
 
 `Translate Only`:
 
@@ -128,7 +122,7 @@ After at least one chapter has been translated, click `Export EPUB` in the novel
 - All translated chapters for the selected novel.
 - A reader-visible table of contents with links to each chapter.
 - EPUB navigation metadata for compatible readers.
-- The novel cover from `output/<novel>/cover.<ext>` when one exists.
+- The novel cover from `data/<novel>/source/cover.<ext>` when one exists.
 
 ## Glossary Rules
 
@@ -159,16 +153,17 @@ app.py                 Compatibility entry point for running/importing the app
 novel_translator/      Python backend modules, local API, and DeepSeek integration
 frontend/              Vite React frontend with shadcn/ui components
 scraper/download_uukanshu.py UU看書 chapter downloader
-output/                Downloaded source chapters, ignored by git
-translated/            Translated chapters
-glossaries/            Novel-specific glossary files, ignored by git
+data/<novel>/source/   Downloaded source chapters and cover, ignored by git
+data/<novel>/translated/ Translated chapters and EPUB exports
+data/<novel>/glossary/ Novel-specific glossary files
+data/logs/             DeepSeek failure logs
 tests/                 Unit tests
-translator_config.json Local API key/model config, ignored by git
+data/translator_config.json Local API key/model config, ignored by git
 ```
 
 ## Downloader
 
-Use the scraper to download a chapter range from a UU看書 novel into `output/<book name>/`:
+Use the scraper to download a chapter range from a UU看書 novel into `data/<book name>/source/`:
 
 ```powershell
 python .\scraper\download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
@@ -182,7 +177,7 @@ Use the 69书吧 scraper the same way:
 python .\scraper\download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
 ```
 
-Both scrapers also save the novel cover as `cover.<ext>` in the same output directory.
+Both scrapers also save the novel cover as `cover.<ext>` in the same source directory.
 
 ## Tests
 

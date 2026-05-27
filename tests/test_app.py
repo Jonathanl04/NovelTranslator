@@ -50,12 +50,11 @@ class TranslatorAppTests(unittest.TestCase):
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
-            glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_Chapter.txt").write_text("第1章\n\n正文", encoding="utf-8")
-            (translated / "Book").mkdir(parents=True)
-            (translated / "Book" / "001_Chapter.txt").write_text(
+            (translated / "Book" / "translated").mkdir(parents=True)
+            (translated / "Book" / "translated" / "001_Chapter.txt").write_text(
                 "Chapter 1\n\nBody\n", encoding="utf-8"
             )
 
@@ -69,7 +68,7 @@ class TranslatorAppTests(unittest.TestCase):
     def test_novel_metadata_includes_cover_url_when_cover_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "output"
-            novel_dir = output / "Book One"
+            novel_dir = output / "Book One" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "cover.jpg").write_bytes(b"cover")
 
@@ -84,16 +83,16 @@ class TranslatorAppTests(unittest.TestCase):
             root = Path(tmp)
             output = root / "output"
             translated = root / "translated"
-            novel_dir = output / "Book One"
+            novel_dir = output / "Book One" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "cover.jpg").write_bytes(b"cover")
             (novel_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
             (novel_dir / "002_Source.txt").write_text("第2章\n\n正文", encoding="utf-8")
-            (translated / "Book One").mkdir(parents=True)
-            (translated / "Book One" / "001_Source.txt").write_text(
+            (translated / "Book One" / "translated").mkdir(parents=True)
+            (translated / "Book One" / "translated" / "001_Source.txt").write_text(
                 "Chapter 1\n\nFirst paragraph.\n\nSecond paragraph.", encoding="utf-8"
             )
-            (translated / "Book One" / "002_Source.txt").write_text(
+            (translated / "Book One" / "translated" / "002_Source.txt").write_text(
                 "Chapter 2\n\nAnother paragraph.", encoding="utf-8"
             )
 
@@ -119,7 +118,7 @@ class TranslatorAppTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "output"
             translated = Path(tmp) / "translated"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
 
@@ -131,7 +130,7 @@ class TranslatorAppTests(unittest.TestCase):
 
         self.assertEqual(
             app.translated_path("Novel", "001_Title.txt", root),
-            root / "Novel" / "001_Title.txt",
+            root / "Novel" / "translated" / "001_Title.txt",
         )
 
     def test_parse_translation_response_from_deepseek_message(self) -> None:
@@ -350,7 +349,7 @@ class TranslatorAppTests(unittest.TestCase):
                     "Book",
                 )
                 self.assertEqual(app.load_glossary("Book")[0]["source_term"], "徐邢")
-                self.assertTrue((glossaries / "Book.json").exists())
+                self.assertTrue((glossaries / "Book" / "glossary" / "glossary.json").exists())
 
     def test_translate_chapter_writes_output_and_updates_glossary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -358,12 +357,12 @@ class TranslatorAppTests(unittest.TestCase):
             output = root / "output"
             translated = root / "translated"
             glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
-            glossary = glossaries / "Book.json"
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
             glossaries.mkdir()
             config.write_text(
                 json.dumps(
@@ -406,7 +405,7 @@ class TranslatorAppTests(unittest.TestCase):
             ):
                 result = app.translate_chapter("Book", "001_第1章.txt", fake_call)
 
-            written = translated / "Book" / "001_第1章.txt"
+            written = translated / "Book" / "translated" / "001_第1章.txt"
             self.assertTrue(written.exists())
             self.assertIn("The Taixuan Realm.", written.read_text(encoding="utf-8"))
             self.assertEqual(result["glossary"][0]["source_term"], "太玄界")
@@ -419,13 +418,13 @@ class TranslatorAppTests(unittest.TestCase):
             output = root / "output"
             translated = root / "translated"
             glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
-            glossary = glossaries / "Book.json"
-            glossaries.mkdir()
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
                     {
@@ -479,14 +478,14 @@ class TranslatorAppTests(unittest.TestCase):
             output = root / "output"
             translated = root / "translated"
             glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
-            glossary = glossaries / "Book.json"
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
             failure_log = root / "deepseek_failures.jsonl"
-            glossaries.mkdir()
+            glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
                     {
@@ -559,13 +558,13 @@ class TranslatorAppTests(unittest.TestCase):
             output = root / "output"
             translated = root / "translated"
             glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n通行區域。", encoding="utf-8")
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
-            glossary = glossaries / "Book.json"
-            glossaries.mkdir()
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
                     {
@@ -616,13 +615,13 @@ class TranslatorAppTests(unittest.TestCase):
             output = root / "output"
             translated = root / "translated"
             glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_1.txt").write_text("1\n\n문.", encoding="utf-8")
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
-            glossary = glossaries / "Book.json"
-            glossaries.mkdir()
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
                     {
@@ -666,13 +665,13 @@ class TranslatorAppTests(unittest.TestCase):
             output = root / "output"
             translated = root / "translated"
             glossaries = root / "glossaries"
-            novel_dir = output / "Book"
+            novel_dir = output / "Book" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "001_第1章.txt").write_text("第1章\n\n遁光。", encoding="utf-8")
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
-            glossary = glossaries / "Book.json"
-            glossaries.mkdir()
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
                     {

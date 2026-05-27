@@ -4,11 +4,6 @@ __pycache__/
 node_modules/
 frontend/node_modules/
 frontend/dist/
-output/
-translated/
-translator_config.json
-glossary.json
-glossaries/
-logs/
+data/
 
 .venv

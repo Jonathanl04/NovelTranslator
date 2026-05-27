@@ -12,7 +12,8 @@ from .source_language import contains_source_language_text
 
 def glossary_path(novel: str, glossary_root: Path | None = None) -> Path:
     glossary_root = glossary_root or settings.GLOSSARY_ROOT
-    return glossary_root / f"{safe_file_stem(safe_segment(novel, 'novel'))}.json"
+    safe_novel = safe_file_stem(safe_segment(novel, "novel"))
+    return glossary_root / safe_novel / "glossary" / "glossary.json"
 
 
 def load_glossary(novel: str | None = None) -> list[dict[str, str]]:

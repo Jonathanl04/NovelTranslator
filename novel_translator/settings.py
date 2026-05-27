@@ -2,12 +2,12 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_DATA_DIR", ROOT))
-OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", DATA_ROOT / "output"))
-TRANSLATED_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_TRANSLATED_ROOT", DATA_ROOT / "translated"))
+DATA_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_DATA_DIR", ROOT / "data"))
+OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", DATA_ROOT))
+TRANSLATED_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_TRANSLATED_ROOT", DATA_ROOT))
 CONFIG_PATH = Path(os.environ.get("NOVEL_TRANSLATOR_CONFIG_PATH", DATA_ROOT / "translator_config.json"))
 GLOSSARY_PATH = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_PATH", DATA_ROOT / "glossary.json"))
-GLOSSARY_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_ROOT", DATA_ROOT / "glossaries"))
+GLOSSARY_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_ROOT", DATA_ROOT))
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 DEEPSEEK_FAILURE_LOG = Path(
     os.environ.get("NOVEL_TRANSLATOR_FAILURE_LOG", DATA_ROOT / "logs" / "deepseek_failures.jsonl")

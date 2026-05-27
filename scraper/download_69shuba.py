@@ -12,7 +12,8 @@ import requests
 from bs4 import BeautifulSoup
 from scrapling.fetchers import StealthyFetcher
 
-OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", "output"))
+DATA_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_DATA_DIR", "data"))
+OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", DATA_ROOT))
 FETCH_OPTIONS = {
     "headless": True,
     "disable_resources": True,
@@ -339,7 +340,7 @@ def main() -> None:
     if not selected:
         raise RuntimeError("No chapters matched the requested range.")
 
-    book_output_dir = OUTPUT_ROOT / book_name
+    book_output_dir = OUTPUT_ROOT / book_name / "source"
     book_output_dir.mkdir(parents=True, exist_ok=True)
     download_cover(cover_url, book_output_dir, args.url)
 
