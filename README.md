@@ -136,6 +136,14 @@ python .\scraper\download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
 
 The script only accepts `uukanshu.cc` URLs.
 
+Use the 69书吧 scraper the same way:
+
+```powershell
+python .\scraper\download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
+```
+
+The script accepts `69shuba.com` book URLs and writes chapters into `output/<book name>/`.
+
 ## Tests
 
 Run:
