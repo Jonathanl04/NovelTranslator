@@ -15,6 +15,11 @@ export type Chapter = {
   translated_size: number;
 };
 
+export type NovelMetadata = {
+  name: string;
+  cover_url: string | null;
+};
+
 export type ChapterDetail = {
   filename: string;
   source: string;

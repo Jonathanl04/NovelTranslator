@@ -14,7 +14,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { api } from "./api";
-import type { Chapter, Config, GlossaryEntry, Model, Usage, UsageBucket } from "./types";
+import type { Chapter, Config, GlossaryEntry, Model, NovelMetadata, Usage, UsageBucket } from "./types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +80,7 @@ export function App() {
   const [config, setConfig] = useState<Config>(emptyConfig);
   const [apiKey, setApiKey] = useState("");
   const [novels, setNovels] = useState<string[]>([]);
+  const [novelMetadata, setNovelMetadata] = useState<NovelMetadata | null>(null);
   const [novel, setNovel] = useState("");
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [selectedFile, setSelectedFile] = useState("");
@@ -159,6 +160,7 @@ export function App() {
       setSelectedFile("");
       setSource("");
       setTranslated("");
+      setNovelMetadata(null);
       setChapterSearch("");
       setBulkSelection(new Set());
       setBulkItems([]);
@@ -168,6 +170,10 @@ export function App() {
         return;
       }
       const nextChapters = await api.chapters(nextNovel);
+      api
+        .novel(nextNovel)
+        .then(setNovelMetadata)
+        .catch(() => setNovelMetadata(null));
       setChapters(nextChapters);
       if (nextChapters[0]) {
         await selectChapter(nextNovel, nextChapters[0].filename);
@@ -381,8 +387,9 @@ export function App() {
 
       {page === "workspace" ? (
         <main className="grid min-h-[calc(100vh-3.5rem)] grid-cols-[320px_minmax(0,1fr)] max-[980px]:grid-cols-1">
-          <aside className="grid min-w-0 content-start gap-4 border-r bg-muted/20 p-4 max-[980px]:border-r-0 max-[980px]:border-b">
+          <aside className="sticky top-14 grid h-[calc(100vh-3.5rem)] min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden border-r bg-muted/20 p-4 max-[980px]:static max-[980px]:h-auto max-[980px]:overflow-visible max-[980px]:border-r-0 max-[980px]:border-b">
             <section className="grid gap-3">
+              <NovelCover novel={novel} metadata={novelMetadata} />
               <div className="grid gap-1.5">
                 <Label>Novel</Label>
                 <Select value={novel} onValueChange={(value) => loadChapters(value).catch((caught) => showStatus(errorMessage(caught), true))}>
@@ -405,7 +412,7 @@ export function App() {
               </div>
             </section>
 
-            <section className="grid gap-2">
+            <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">Chapters</h2>
                 <Badge variant="outline">{untranslatedCount} new</Badge>
@@ -417,7 +424,7 @@ export function App() {
                 className="bg-background"
                 onChange={(event) => setChapterSearch(event.target.value)}
               />
-              <ScrollArea className="h-[calc(100vh-16rem)] rounded-lg border bg-background pr-2 max-[980px]:h-72">
+              <ScrollArea className="h-full rounded-lg border bg-background pr-2 max-[980px]:h-72">
                 <div className="grid gap-1.5 p-2">
                   {visibleChapters.map((chapter) => (
                     <button
@@ -528,6 +535,25 @@ export function App() {
           onUpdate={updateGlossaryEntry}
         />
       )}
+    </div>
+  );
+}
+
+function NovelCover({ novel, metadata }: { novel: string; metadata: NovelMetadata | null }) {
+  if (!novel || !metadata?.cover_url) {
+    return null;
+  }
+
+  return (
+    <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-background p-2">
+      <img
+        src={metadata.cover_url}
+        alt={`${novel} cover`}
+        className="aspect-[7/9] h-24 w-[72px] rounded-md object-cover"
+      />
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold">{novel}</div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import mimetypes
 import re
 import sys
 from pathlib import Path
@@ -8,9 +9,16 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from scrapling.fetchers import StealthyFetcher
 
-MIRROR_PREFIX = "https://r.jina.ai/http://"
 OUTPUT_ROOT = Path("output")
+FETCH_OPTIONS = {
+    "headless": True,
+    "disable_resources": True,
+    "timeout": 60_000,
+    "wait": 3_000,
+    "locale": "zh-CN",
+}
 
 CHINESE_DIGITS = {
     "零": 0,
@@ -58,30 +66,11 @@ CHINESE_LARGE_UNITS = {
 }
 
 
-def mirror_url(url: str) -> str:
-    return f"{MIRROR_PREFIX}{url}"
-
-
 def fetch_text(url: str) -> str:
-    response = requests.get(
-        url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        },
-        timeout=30,
-    )
-
-    if response.ok and "Just a moment" not in response.text:
-        return response.text
-
-    mirror_response = requests.get(mirror_url(url), timeout=30)
-    mirror_response.raise_for_status()
-    return mirror_response.text
+    response = StealthyFetcher.fetch(url, **FETCH_OPTIONS)
+    if response.status >= 400:
+        raise RuntimeError(f"Failed to fetch {url}: HTTP {response.status}")
+    return response.html_content
 
 
 def markdown_content(page_text: str) -> str:
@@ -107,6 +96,49 @@ def clean_lines(text: str) -> list[str]:
 
 def safe_name(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1F]', "_", name).strip(" .")
+
+
+def image_extension(url: str, content_type: str | None) -> str:
+    suffix = Path(urlparse(url).path).suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        return suffix
+    if content_type:
+        extension = mimetypes.guess_extension(content_type.split(";", 1)[0].strip())
+        if extension in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            return extension
+    return ".jpg"
+
+
+def download_cover(cover_url: str | None, output_dir: Path, referer: str) -> None:
+    if not cover_url:
+        print("No cover image found.")
+        return
+
+    response = requests.get(
+        cover_url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Referer": referer,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    extension = image_extension(cover_url, response.headers.get("content-type"))
+    cover_path = output_dir / f"cover{extension}"
+    for existing_cover in output_dir.glob("cover.*"):
+        existing_cover.unlink()
+    cover_path.write_bytes(response.content)
+    print(f"Saved cover: {cover_path.name}")
+
+
+def remove_existing_chapter_files(output_dir: Path, chapter_number: int) -> None:
+    for existing in output_dir.glob(f"{chapter_number:03d}_*.txt"):
+        existing.unlink()
 
 
 def chinese_numeral_to_int(text: str) -> int:
@@ -184,6 +216,19 @@ def extract_book_name(index_text: str) -> str:
     return re.split(r"最新章节|无弹窗|txt|全集|阅读|列表|广告", title_node.get_text(" ", strip=True), 1)[0].strip()
 
 
+def extract_cover_url(index_text: str, base_url: str) -> str | None:
+    if "Markdown Content:" in index_text:
+        markdown = markdown_content(index_text)
+        match = re.search(r"!\[[^\]]*\]\((https?://cdn\.cdnshu\.com/files/article/image/[^\s)]+)", markdown)
+        return match.group(1) if match else None
+
+    soup = BeautifulSoup(index_text, "html.parser")
+    image = soup.select_one('img[src*="/files/article/image/"][src]') or soup.select_one("img[alt][title][src]")
+    if image is None:
+        return None
+    return urljoin(base_url, image.get("src", ""))
+
+
 def extract_chapter_links(index_text: str, book_id: str) -> list[tuple[int, str, str]]:
     links: list[tuple[int, str, str]] = []
     seen: set[str] = set()
@@ -256,7 +301,11 @@ def extract_chapter_text(page_text: str, fallback_title: str) -> tuple[str, str]
 
     title = title_node.get_text(" ", strip=True) if title_node is not None else fallback_title
     lines = clean_lines(body_node.get_text("\n"))
-    lines = [line for line in lines if line != title and not line.startswith("作者：")]
+    lines = [
+        line
+        for line in lines
+        if line != title and not line.startswith("作者：") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", line)
+    ]
 
     content = "\n".join(lines).strip()
     if not content:
@@ -279,8 +328,10 @@ def main() -> None:
         raise ValueError("Invalid chapter range: start must be >= 1 and end must be >= start.")
 
     book_id = infer_book_id(args.url)
+    book_page_text = fetch_text(args.url)
     index_text = fetch_text(chapter_index_url(book_id))
-    book_name = safe_name(extract_book_name(index_text))
+    book_name = safe_name(extract_book_name(book_page_text))
+    cover_url = extract_cover_url(book_page_text, args.url)
     chapters = extract_chapter_links(index_text, book_id)
 
     selected = [item for item in chapters if args.start <= item[0] <= args.end]
@@ -289,13 +340,13 @@ def main() -> None:
 
     book_output_dir = OUTPUT_ROOT / book_name
     book_output_dir.mkdir(parents=True, exist_ok=True)
-    for existing in book_output_dir.glob("*.txt"):
-        existing.unlink()
+    download_cover(cover_url, book_output_dir, args.url)
 
     for chapter_number, fallback_title, url in selected:
         page_text = fetch_text(url)
         title, content = extract_chapter_text(page_text, fallback_title)
         file_name = f"{chapter_number:03d}_{safe_name(title)}.txt"
+        remove_existing_chapter_files(book_output_dir, chapter_number)
         (book_output_dir / file_name).write_text(f"{title}\n\n{content}\n", encoding="utf-8")
         print(f"Saved {chapter_number}: {file_name}")
 

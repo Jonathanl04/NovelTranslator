@@ -4,6 +4,7 @@ import type {
   Config,
   GlossaryEntry,
   Model,
+  NovelMetadata,
   TranslationResult,
   Usage,
 } from "./types";
@@ -31,6 +32,8 @@ export const api = {
     glossary_model: Model;
   }) => request<Config>("/api/config", { method: "POST", body: JSON.stringify(payload) }),
   novels: () => request<string[]>("/api/novels"),
+  novel: (novel: string) =>
+    request<NovelMetadata>(`/api/novel?novel=${encodeURIComponent(novel)}`),
   chapters: (novel: string) =>
     request<Chapter[]>(`/api/chapters?novel=${encodeURIComponent(novel)}`),
   chapter: (novel: string, file: string) =>

@@ -64,6 +64,19 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(chapters[0]["title"], "001 Chapter 1")
             self.assertTrue(chapters[0]["translated"])
 
+    def test_novel_metadata_includes_cover_url_when_cover_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            novel_dir = output / "Book One"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "cover.jpg").write_bytes(b"cover")
+
+            metadata = app.novel_metadata("Book One", output)
+
+            self.assertEqual(app.cover_path("Book One", output), novel_dir / "cover.jpg")
+            self.assertEqual(metadata["name"], "Book One")
+            self.assertEqual(metadata["cover_url"], "/api/cover?novel=Book%20One")
+
     def test_translated_path_preserves_layout(self) -> None:
         root = Path("translated-root")
 

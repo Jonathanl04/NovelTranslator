@@ -19,6 +19,7 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 - Python 3.11 or newer.
 - Node.js 22.22.2, 24.15.0, 26.0.0, or newer for frontend development. The current app also builds on Node 24.12.0 with an npm engine warning from a transitive CLI package.
 - A DeepSeek API key.
+- Downloader scripts use `requests`, `beautifulsoup4`, and `scrapling`.
 
 The backend uses only the Python standard library.
 
@@ -142,7 +143,7 @@ Use the 69书吧 scraper the same way:
 python .\scraper\download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
 ```
 
-The script accepts `69shuba.com` book URLs and writes chapters into `output/<book name>/`.
+Both scrapers also save the novel cover as `cover.<ext>` in the same output directory.
 
 ## Tests
 

@@ -1,7 +1,9 @@
 from novel_translator.chapters import (
     chapter_label,
+    cover_path,
     list_chapters,
     list_novels,
+    novel_metadata,
     read_chapter,
     safe_segment,
     source_path,

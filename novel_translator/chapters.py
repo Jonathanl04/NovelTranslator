@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from . import settings
 from .errors import AppError
@@ -18,6 +19,29 @@ def list_novels(output_root: Path | None = None) -> list[str]:
     if not output_root.exists():
         return []
     return sorted(item.name for item in output_root.iterdir() if item.is_dir())
+
+
+def cover_path(novel: str, output_root: Path | None = None) -> Path | None:
+    output_root = output_root or settings.OUTPUT_ROOT
+    novel = safe_segment(novel, "novel")
+    novel_dir = output_root / novel
+    if not novel_dir.exists() or not novel_dir.is_dir():
+        raise AppError("Novel not found.", 404)
+
+    for pattern in ("cover.jpg", "cover.jpeg", "cover.png", "cover.webp", "cover.gif"):
+        path = novel_dir / pattern
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
+def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any]:
+    safe_novel = safe_segment(novel, "novel")
+    path = cover_path(safe_novel, output_root)
+    return {
+        "name": safe_novel,
+        "cover_url": f"/api/cover?novel={quote(safe_novel)}" if path else None,
+    }
 
 
 def source_path(novel: str, filename: str, output_root: Path | None = None) -> Path:

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
-from scraper.download_uukanshu import extract_chapter_links, parse_chapter_number
+from scraper.download_uukanshu import (
+    extract_chapter_links,
+    extract_cover_url,
+    parse_chapter_number,
+    remove_existing_chapter_files,
+)
 
 
 class UukanshuDownloaderTests(unittest.TestCase):
@@ -46,6 +53,31 @@ class UukanshuDownloaderTests(unittest.TestCase):
         links = extract_chapter_links(index_text, "26855")
 
         self.assertEqual([item[0] for item in links], [1, 12, 129])
+
+    def test_extract_cover_url_handles_html_thumbnail(self) -> None:
+        index_text = """
+        <div>
+          <img class="thumbnail" src="https://image.uukanshu.cc/25/25771/25771s.jpg" title="老祖，時代變了" />
+        </div>
+        """
+
+        self.assertEqual(
+            extract_cover_url(index_text, "https://uukanshu.cc/book/25771/"),
+            "https://image.uukanshu.cc/25/25771/25771s.jpg",
+        )
+
+    def test_remove_existing_chapter_files_keeps_other_files(self) -> None:
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            (output_dir / "001_old.txt").write_text("old", encoding="utf-8")
+            (output_dir / "002_keep.txt").write_text("keep", encoding="utf-8")
+            (output_dir / "notes.txt").write_text("notes", encoding="utf-8")
+
+            remove_existing_chapter_files(output_dir, 1)
+
+            self.assertFalse((output_dir / "001_old.txt").exists())
+            self.assertTrue((output_dir / "002_keep.txt").exists())
+            self.assertTrue((output_dir / "notes.txt").exists())
 
 
 if __name__ == "__main__":

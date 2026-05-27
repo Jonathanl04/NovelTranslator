@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import settings
-from .chapters import list_chapters, list_novels, read_chapter
+from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
 from .errors import AppError
 from .glossary import load_glossary, save_glossary
@@ -39,6 +39,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and parsed.path == "/api/novels":
                 self.json(list_novels())
+                return
+            if method == "GET" and parsed.path == "/api/novel":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.json(novel_metadata(first(query, "novel")))
+                return
+            if method == "GET" and parsed.path == "/api/cover":
+                query = urllib.parse.parse_qs(parsed.query)
+                path = cover_path(first(query, "novel"))
+                if path is None:
+                    raise AppError("Cover not found.", 404)
+                self.static_file(path)
                 return
             if method == "GET" and parsed.path == "/api/chapters":
                 query = urllib.parse.parse_qs(parsed.query)

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from scraper.download_69shuba import (
     extract_book_name,
     extract_chapter_links,
     extract_chapter_text,
+    extract_cover_url,
     parse_chapter_number,
+    remove_existing_chapter_files,
 )
 
 
@@ -70,6 +74,31 @@ class ShubaDownloaderTests(unittest.TestCase):
 
         self.assertEqual(title, "第1章 合成魔方")
         self.assertEqual(content, "正文第一段。")
+
+    def test_extract_cover_url_handles_book_image(self) -> None:
+        page_text = """
+        <div>
+          <img alt="合成系巫师" src="https://cdn.cdnshu.com/files/article/image/77/77582/77582s.jpg" title="合成系巫师" />
+        </div>
+        """
+
+        self.assertEqual(
+            extract_cover_url(page_text, "https://www.69shuba.com/book/77582.htm"),
+            "https://cdn.cdnshu.com/files/article/image/77/77582/77582s.jpg",
+        )
+
+    def test_remove_existing_chapter_files_keeps_other_files(self) -> None:
+        with TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            (output_dir / "001_old.txt").write_text("old", encoding="utf-8")
+            (output_dir / "002_keep.txt").write_text("keep", encoding="utf-8")
+            (output_dir / "notes.txt").write_text("notes", encoding="utf-8")
+
+            remove_existing_chapter_files(output_dir, 1)
+
+            self.assertFalse((output_dir / "001_old.txt").exists())
+            self.assertTrue((output_dir / "002_keep.txt").exists())
+            self.assertTrue((output_dir / "notes.txt").exists())
 
 
 if __name__ == "__main__":
