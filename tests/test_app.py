@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -76,6 +78,53 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(app.cover_path("Book One", output), novel_dir / "cover.jpg")
             self.assertEqual(metadata["name"], "Book One")
             self.assertEqual(metadata["cover_url"], "/api/cover?novel=Book%20One")
+
+    def test_build_translated_epub_includes_toc_links_chapters_and_cover(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            novel_dir = output / "Book One"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "cover.jpg").write_bytes(b"cover")
+            (novel_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
+            (novel_dir / "002_Source.txt").write_text("第2章\n\n正文", encoding="utf-8")
+            (translated / "Book One").mkdir(parents=True)
+            (translated / "Book One" / "001_Source.txt").write_text(
+                "Chapter 1\n\nFirst paragraph.\n\nSecond paragraph.", encoding="utf-8"
+            )
+            (translated / "Book One" / "002_Source.txt").write_text(
+                "Chapter 2\n\nAnother paragraph.", encoding="utf-8"
+            )
+
+            raw, filename = app.build_translated_epub("Book One", output, translated)
+
+            self.assertEqual(filename, "Book One.epub")
+            with zipfile.ZipFile(BytesIO(raw)) as epub:
+                self.assertEqual(epub.namelist()[0], "mimetype")
+                self.assertEqual(epub.read("mimetype"), b"application/epub+zip")
+                self.assertIn("OEBPS/images/cover.jpg", epub.namelist())
+                self.assertEqual(epub.read("OEBPS/images/cover.jpg"), b"cover")
+                nav = epub.read("OEBPS/nav.xhtml").decode("utf-8")
+                toc = epub.read("OEBPS/toc.ncx").decode("utf-8")
+                opf = epub.read("OEBPS/content.opf").decode("utf-8")
+
+                self.assertIn('href="chapters/chapter-0001.xhtml"', nav)
+                self.assertIn(">Chapter 1<", nav)
+                self.assertIn('src="chapters/chapter-0002.xhtml"', toc)
+                self.assertIn('properties="cover-image"', opf)
+                self.assertIn("First paragraph.", epub.read("OEBPS/chapters/chapter-0001.xhtml").decode("utf-8"))
+
+    def test_build_translated_epub_requires_translated_chapters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            translated = Path(tmp) / "translated"
+            novel_dir = output / "Book"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
+
+            with self.assertRaises(app.AppError):
+                app.build_translated_epub("Book", output, translated)
 
     def test_translated_path_preserves_layout(self) -> None:
         root = Path("translated-root")
@@ -232,22 +281,27 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertNotIn("categories.map", app_source)
         self.assertNotIn("proper_noun", app_source)
 
-    def test_dictionary_panel_is_collapsible(self) -> None:
+    def test_glossary_page_is_rendered(self) -> None:
         app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("Collapsible", app_source)
-        self.assertIn("setDictionaryOpen", app_source)
-        self.assertIn("grid-cols-[300px_minmax(0,1fr)_150px]", app_source)
+        self.assertIn("GlossaryPage", app_source)
+        self.assertIn("Save Glossary", app_source)
+        self.assertIn("Add Entry", app_source)
 
-    def test_dictionary_word_count_is_rendered(self) -> None:
+    def test_epub_export_ui_is_rendered(self) -> None:
         app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
             encoding="utf-8"
         )
+        api_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "api.ts").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("dictionaryCount", app_source)
-        self.assertIn('"word" : "words"', app_source)
+        self.assertIn("Export EPUB", app_source)
+        self.assertIn("exportEpub", app_source)
+        self.assertIn("exportEpubUrl", api_source)
+        self.assertIn("/api/export/epub", api_source)
 
     def test_bulk_translation_progress_ui_is_rendered(self) -> None:
         app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
@@ -255,10 +309,10 @@ class TranslatorAppTests(unittest.TestCase):
         )
 
         self.assertIn("runBulkTranslation", app_source)
-        self.assertIn("Bulk Translate From Selected", app_source)
-        self.assertIn("Bulk progress", app_source)
+        self.assertIn("Bulk Translate", app_source)
+        self.assertIn("BulkProgress", app_source)
         self.assertIn("api.translate(novel, item.filename)", app_source)
-        self.assertIn("status: chapter.translated", app_source)
+        self.assertIn('status: "pending"', app_source)
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

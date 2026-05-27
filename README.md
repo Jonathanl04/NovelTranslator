@@ -7,6 +7,7 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 - Lists novels from `output/<novel name>/`.
 - Translates one selected `.txt` chapter at a time.
 - Saves translated chapters to `translated/<novel name>/<same filename>`.
+- Exports translated chapters to EPUB with a linked table of contents and the downloaded cover image.
 - Keeps a novel-specific glossary in `glossaries/<novel name>.json`.
 - Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
 - Uses DeepSeek chat completions directly from the Python backend.
@@ -90,6 +91,15 @@ Using the same model for both can improve DeepSeek cache-hit opportunities becau
 1. Skips glossary extraction.
 2. Translates using the current novel glossary.
 3. Runs the same untranslated source-language validation and repair flow.
+
+## EPUB Export
+
+After at least one chapter has been translated, click `Export EPUB` in the novel sidebar. The generated `.epub` contains:
+
+- All translated chapters for the selected novel.
+- A reader-visible table of contents with links to each chapter.
+- EPUB navigation metadata for compatible readers.
+- The novel cover from `output/<novel>/cover.<ext>` when one exists.
 
 ## Glossary Rules
 

@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Download,
   Eraser,
   Library,
   Plus,
@@ -363,6 +364,32 @@ export function App() {
     selectChapter(novel, filename).catch((caught) => showStatus(errorMessage(caught), true));
   }
 
+  async function exportEpub() {
+    if (!novel || busy) return;
+    try {
+      showStatus("Preparing EPUB export...");
+      const response = await fetch(api.exportEpubUrl(novel));
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "EPUB export failed");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = decodeContentDispositionFilename(disposition) || `${novel}.epub`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showStatus(`Exported ${filename}.`);
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-20 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-background/95 px-5 backdrop-blur max-[760px]:grid-cols-1 max-[760px]:h-auto max-[760px]:gap-3 max-[760px]:py-3">
@@ -410,6 +437,10 @@ export function App() {
                 <Metric label="Translated" value={chapters.length - untranslatedCount} />
                 <Metric label="Queued" value={bulkSelection.size} />
               </div>
+              <Button type="button" variant="outline" disabled={!novel || busy || chapters.length === untranslatedCount} onClick={exportEpub}>
+                <Download />
+                Export EPUB
+              </Button>
             </section>
 
             <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-2">
@@ -1016,6 +1047,14 @@ function cleanGlossary(entries: GlossaryEntry[]) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function decodeContentDispositionFilename(disposition: string) {
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    return decodeURIComponent(encoded);
+  }
+  return disposition.match(/filename="?([^";]+)"?/i)?.[1] || "";
 }
 
 function formatInteger(value: number) {

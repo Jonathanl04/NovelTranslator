@@ -1,5 +1,5 @@
 param(
-    [string]$HostName = "127.0.0.1",
+    [string]$HostName = "0.0.0.0",
     [int]$Port = 8765,
     [switch]$SkipBuild
 )

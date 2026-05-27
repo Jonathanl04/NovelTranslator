@@ -10,6 +10,7 @@ from . import settings
 from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
 from .errors import AppError
+from .epub import build_translated_epub
 from .glossary import load_glossary, save_glossary
 from .translation import populate_glossary_for_chapter, translate_chapter
 from .usage import current_usage, reset_usage
@@ -50,6 +51,15 @@ class Handler(BaseHTTPRequestHandler):
                 if path is None:
                     raise AppError("Cover not found.", 404)
                 self.static_file(path)
+                return
+            if method == "GET" and parsed.path == "/api/export/epub":
+                query = urllib.parse.parse_qs(parsed.query)
+                raw, filename = build_translated_epub(first(query, "novel"))
+                self.download(
+                    raw,
+                    filename,
+                    "application/epub+zip",
+                )
                 return
             if method == "GET" and parsed.path == "/api/chapters":
                 query = urllib.parse.parse_qs(parsed.query)
@@ -170,6 +180,19 @@ class Handler(BaseHTTPRequestHandler):
         raw = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        self.no_cache_headers()
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def download(self, raw: bytes, filename: str, content_type: str) -> None:
+        encoded = urllib.parse.quote(filename)
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header(
+            "Content-Disposition",
+            f"attachment; filename*=UTF-8''{encoded}",
+        )
         self.no_cache_headers()
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()

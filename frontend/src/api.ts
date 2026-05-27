@@ -42,6 +42,7 @@ export const api = {
     ),
   glossary: (novel: string) =>
     request<GlossaryEntry[]>(`/api/glossary?novel=${encodeURIComponent(novel)}`),
+  exportEpubUrl: (novel: string) => `/api/export/epub?novel=${encodeURIComponent(novel)}`,
   saveGlossary: (novel: string, entries: GlossaryEntry[]) =>
     request<GlossaryEntry[]>("/api/glossary", {
       method: "POST",
