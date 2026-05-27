@@ -8,9 +8,11 @@ import {
   Download,
   Eraser,
   Library,
+  Moon,
   Plus,
   Save,
   Settings,
+  Sun,
   Trash2,
   WandSparkles,
 } from "lucide-react";
@@ -43,6 +45,7 @@ const MODELS: Model[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 const PRONOUNS = ["__none__", "male", "female", "unknown", "it"];
 
 type Page = "workspace" | "glossary";
+type ReaderTab = "raw" | "translated";
 type BulkStatus = "pending" | "translating" | "done" | "failed";
 
 type BulkItem = {
@@ -95,6 +98,8 @@ export function App() {
   const [usage, setUsage] = useState<Usage>(emptyUsage);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
+  const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
 
   const selectedChapter = useMemo(
     () => chapters.find((chapter) => chapter.filename === selectedFile),
@@ -206,6 +211,11 @@ export function App() {
       active = false;
     };
   }, [loadChapters, showStatus]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   async function saveConfig() {
     try {
@@ -392,7 +402,7 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-20 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-background/95 px-5 backdrop-blur max-[760px]:grid-cols-1 max-[760px]:h-auto max-[760px]:gap-3 max-[760px]:py-3">
+      <header className="sticky top-0 z-20 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-background/95 px-5 pr-16 backdrop-blur max-[760px]:grid-cols-1 max-[760px]:h-auto max-[760px]:gap-3 max-[760px]:py-3">
         <div className="flex items-center gap-2">
           <BookOpen className="size-5 text-teal-700" />
           <h1 className="text-base font-semibold">Novel Translator</h1>
@@ -410,6 +420,17 @@ export function App() {
         <div className={cn("min-w-0 truncate text-right text-sm text-muted-foreground max-[760px]:text-left", error && "text-destructive")}>
           {status || "Ready"}
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="absolute right-5 top-3 max-[760px]:right-3 max-[760px]:top-3"
+          onClick={() => setDarkMode((current) => !current)}
+          aria-label={darkMode ? "Use light mode" : "Use dark mode"}
+          title={darkMode ? "Light mode" : "Dark mode"}
+        >
+          {darkMode ? <Sun /> : <Moon />}
+        </Button>
       </header>
 
       {page === "workspace" ? (
@@ -534,10 +555,12 @@ export function App() {
               onRun={runBulkTranslation}
             />
 
-            <div className="grid min-h-0 grid-cols-2 gap-3 max-[860px]:grid-cols-1">
-              <Reader label="Source" value={source} />
-              <Reader label="Translation" value={translated} />
-            </div>
+            <ReaderPanel
+              tab={readerTab}
+              source={source}
+              translated={translated}
+              onTabChange={setReaderTab}
+            />
 
             <ChapterNavigation
               currentIndex={selectedChapterIndex}
@@ -935,10 +958,47 @@ function ModelSelect({
   );
 }
 
-function Reader({ label, value }: { label: string; value: string }) {
+function ReaderPanel({
+  tab,
+  source,
+  translated,
+  onTabChange,
+}: {
+  tab: ReaderTab;
+  source: string;
+  translated: string;
+  onTabChange: (tab: ReaderTab) => void;
+}) {
+  const value = tab === "raw" ? source : translated;
+
   return (
-    <div className="grid min-h-0 grid-rows-[auto_1fr] gap-2">
-      <Label>{label}</Label>
+    <div className="grid min-h-0 grid-rows-[auto_1fr] gap-3">
+      <div className="mx-auto grid w-full max-w-xl grid-cols-2 rounded-lg bg-muted p-1">
+        <button
+          type="button"
+          className={cn(
+            "h-9 rounded-md text-sm font-semibold transition-colors",
+            tab === "raw"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => onTabChange("raw")}
+        >
+          Raw
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "h-9 rounded-md text-sm font-semibold transition-colors",
+            tab === "translated"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => onTabChange("translated")}
+        >
+          Translated
+        </button>
+      </div>
       <Textarea value={value} readOnly className="h-full min-h-64 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed" />
     </div>
   );
