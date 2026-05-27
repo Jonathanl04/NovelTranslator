@@ -212,13 +212,22 @@ def build_fragment_repair_messages(
         }
         for fragment in fragments
     ]
-    instruction = """
+    instruction = f"""
 The previous translation JSON still contains untranslated Chinese or Korean fragments.
-Using the full source context and draft translation already present in this chat,
-return only valid JSON with a replacements array.
+Using the full source context and draft translation already present in this chat.
 For each fragment, provide a natural English replacement based on context.
 Do not use Chinese or Korean source-language text in replacements.
 Do not include explanations.
+
+Return only valid JSON with:
+{{
+  "replacements": [
+    {{
+      "fragment": "original term",
+      "replacement": "English replacement"
+    }}
+  ]
+}}
 """.strip()
     user = instruction + "\n\n" + json.dumps({"fragments": items}, ensure_ascii=False, indent=2)
     return [
