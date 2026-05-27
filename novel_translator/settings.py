@@ -1,13 +1,17 @@
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_ROOT = ROOT / "output"
-TRANSLATED_ROOT = ROOT / "translated"
-CONFIG_PATH = ROOT / "translator_config.json"
-GLOSSARY_PATH = ROOT / "glossary.json"
-GLOSSARY_ROOT = ROOT / "glossaries"
+DATA_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_DATA_DIR", ROOT))
+OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", DATA_ROOT / "output"))
+TRANSLATED_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_TRANSLATED_ROOT", DATA_ROOT / "translated"))
+CONFIG_PATH = Path(os.environ.get("NOVEL_TRANSLATOR_CONFIG_PATH", DATA_ROOT / "translator_config.json"))
+GLOSSARY_PATH = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_PATH", DATA_ROOT / "glossary.json"))
+GLOSSARY_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_ROOT", DATA_ROOT / "glossaries"))
 FRONTEND_DIST = ROOT / "frontend" / "dist"
-DEEPSEEK_FAILURE_LOG = ROOT / "logs" / "deepseek_failures.jsonl"
+DEEPSEEK_FAILURE_LOG = Path(
+    os.environ.get("NOVEL_TRANSLATOR_FAILURE_LOG", DATA_ROOT / "logs" / "deepseek_failures.jsonl")
+)
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash"
 DEFAULT_GLOSSARY_MODEL = "deepseek-v4-flash"

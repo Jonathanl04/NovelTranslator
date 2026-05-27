@@ -60,6 +60,28 @@ http://127.0.0.1:5173
 
 Paste your DeepSeek API key in the UI and click `Save`. The key is stored locally in `translator_config.json`, which is ignored by git.
 
+## Docker
+
+Build and start the app:
+
+```powershell
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:8765
+```
+
+The compose file mounts local data folders into the container:
+
+- `output/` for downloaded source chapters.
+- `translated/` for translated chapters and EPUB exports.
+- `glossaries/` for novel glossaries.
+- `logs/` for DeepSeek failure logs.
+- `docker-data/translator_config.json` for Docker-specific API key and model settings.
+
 ## Model Settings
 
 The UI has two model selectors:

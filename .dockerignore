@@ -1,0 +1,13 @@
+.git
+__pycache__/
+*.pyc
+*.tsbuildinfo
+frontend/node_modules/
+frontend/dist/
+node_modules/
+output/
+translated/
+glossaries/
+logs/
+docker-data/
+translator_config.json
