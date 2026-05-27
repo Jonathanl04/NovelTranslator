@@ -82,6 +82,13 @@ The compose file mounts local data folders into the container:
 - `logs/` for DeepSeek failure logs.
 - `docker-data/translator_config.json` for Docker-specific API key and model settings.
 
+The scraper scripts and their Python dependencies are included in the image. The image installs `scrapling[fetchers]` and runs `scrapling install` so `StealthyFetcher` has its browser dependencies. Run the scrapers through Compose so downloaded chapters land in the mounted `output/` folder:
+
+```powershell
+docker compose run --rm novel-translator python scraper/download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
+docker compose run --rm novel-translator python scraper/download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
+```
+
 ## Model Settings
 
 The UI has two model selectors:

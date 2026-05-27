@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import mimetypes
+import os
 import re
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 from scrapling.fetchers import StealthyFetcher
 
-OUTPUT_ROOT = Path("output")
+OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", "output"))
 FETCH_OPTIONS = {
     "headless": True,
     "disable_resources": True,

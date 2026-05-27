@@ -15,8 +15,13 @@ WORKDIR /app
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser
 
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && scrapling install
+
 COPY app.py ./
 COPY novel_translator/ ./novel_translator/
+COPY scraper/ ./scraper/
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 RUN mkdir -p /data/output /data/translated /data/glossaries /data/logs \
