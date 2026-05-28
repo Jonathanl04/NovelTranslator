@@ -690,6 +690,61 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(third_messages[2], {"role": "assistant", "content": "not json"})
             self.assertIn("The Taixuan Realm.", result["translated"])
 
+    def test_tiny_translation_with_source_language_uses_incomplete_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book" / "source"
+            novel_dir.mkdir(parents=True)
+            long_body = "太玄界。" * 120
+            (novel_dir / "001_第1章.txt").write_text(f"第1章\n\n{long_body}", encoding="utf-8")
+            config = root / "translator_config.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "api_key": "secret",
+                        "translation_model": "deepseek-v4-flash",
+                        "glossary_model": "deepseek-v4-pro",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            glossary.write_text("[]", encoding="utf-8")
+            calls = []
+
+            def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
+                calls.append(messages)
+                if len(calls) == 1:
+                    return {
+                        "translated_title": "Chapter 1",
+                        "translated_body": "A streak of 遁光.",
+                    }
+                self.assertIn("did not provide a complete chapter translation", messages[-1]["content"])
+                self.assertIn("translate the entire original chapter again", messages[-1]["content"])
+                return {
+                    "translated_title": "Chapter 1",
+                    "translated_body": "The Taixuan Realm. " * 120,
+                }
+
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ):
+                result = app.translate_chapter(
+                    "Book", "001_第1章.txt", fake_call, populate_glossary=False
+                )
+
+            self.assertEqual(len(calls), 2)
+            self.assertIn("The Taixuan Realm.", result["translated"])
+
     def test_translate_only_repairs_remaining_chinese(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

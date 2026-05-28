@@ -14,6 +14,10 @@ from .source_language import contains_source_language_text, source_language_frag
 state_lock = threading.Lock()
 TRANSLATION_JSON_RETRIES = 2
 INVALID_TRANSLATION_JSON_MESSAGE = "DeepSeek message was not valid translation JSON."
+INCOMPLETE_TRANSLATION_MESSAGE = "DeepSeek returned an incomplete translation."
+MIN_SOURCE_LENGTH_FOR_INCOMPLETE_TRANSLATION_CHECK = 200
+MIN_TRANSLATION_LENGTH_FOR_FULL_CHAPTER = 200
+MIN_TRANSLATION_TO_SOURCE_RATIO = 0.1
 
 SHARED_PROMPT_PREFIX = """
 You are working on web novel localization into English. 
@@ -154,7 +158,7 @@ def is_retryable_translation_timeout(error: AppError) -> bool:
     return DEEPSEEK_TIMEOUT_MESSAGE in str(error)
 
 
-def parse_translation_response(data: dict[str, Any]) -> dict[str, Any]:
+def parse_translation_response(data: dict[str, Any], source_body: str = "") -> dict[str, Any]:
     if "choices" in data:
         try:
             content = data["choices"][0]["message"]["content"]
@@ -171,6 +175,8 @@ def parse_translation_response(data: dict[str, Any]) -> dict[str, Any]:
         raise AppError("Translation JSON is missing translated_title.", 502)
     if not isinstance(body, str) or not body.strip():
         raise AppError("Translation JSON is missing translated_body.", 502)
+    if contains_source_language_text(body) and is_incomplete_translation_body(source_body, body):
+        raise AppError(INCOMPLETE_TRANSLATION_MESSAGE, 502)
     if contains_source_language_text(title) or contains_source_language_text(body):
         raise AppError(
             "Translation still contains Chinese or Korean source-language text; not saving partial output.",
@@ -181,6 +187,17 @@ def parse_translation_response(data: dict[str, Any]) -> dict[str, Any]:
         "translated_title": title.strip(),
         "translated_body": body.strip(),
     }
+
+
+def is_incomplete_translation_body(source_body: str, translated_body: str) -> bool:
+    source_length = len(source_body.strip())
+    translated_length = len(translated_body.strip())
+    if source_length < MIN_SOURCE_LENGTH_FOR_INCOMPLETE_TRANSLATION_CHECK:
+        return False
+    return (
+        translated_length < MIN_TRANSLATION_LENGTH_FOR_FULL_CHAPTER
+        or translated_length < source_length * MIN_TRANSLATION_TO_SOURCE_RATIO
+    )
 
 
 def response_message_content(data: dict[str, Any]) -> str:
@@ -249,6 +266,23 @@ Do not include explanations or Markdown.
     return [
         *translation_messages,
         {"role": "assistant", "content": invalid_json},
+        {"role": "user", "content": user},
+    ]
+
+
+def build_incomplete_translation_retry_messages(
+    translation_messages: list[dict[str, str]], incomplete_json: str
+) -> list[dict[str, str]]:
+    user = """
+The previous did not provide a complete chapter translation.
+It returned only a short body.
+Please translate the entire original chapter again from the source context already present in this chat.
+Return valid JSON only, with the complete translated_title and complete translated_body.
+Do not include explanations or Markdown.
+""".strip()
+    return [
+        *translation_messages,
+        {"role": "assistant", "content": incomplete_json},
         {"role": "user", "content": user},
     ]
 
@@ -384,15 +418,24 @@ def translate_chapter(
                     raise
                 continue
             try:
-                parsed = parse_translation_response(api_response)
+                parsed = parse_translation_response(api_response, body)
                 break
             except AppError as exc:
                 log_parse_failure("translation_parse_error", config["translation_model"], retry_messages, api_response, exc)
-                if INVALID_TRANSLATION_JSON_MESSAGE not in str(exc) or retry_index == TRANSLATION_JSON_RETRIES:
+                if (
+                    INVALID_TRANSLATION_JSON_MESSAGE not in str(exc)
+                    and INCOMPLETE_TRANSLATION_MESSAGE not in str(exc)
+                ) or retry_index == TRANSLATION_JSON_RETRIES:
                     raise
-                retry_messages = build_invalid_translation_json_retry_messages(
-                    retry_messages, response_message_content(api_response)
-                )
+                retry_content = response_message_content(api_response)
+                if INCOMPLETE_TRANSLATION_MESSAGE in str(exc):
+                    retry_messages = build_incomplete_translation_retry_messages(
+                        retry_messages, retry_content
+                    )
+                else:
+                    retry_messages = build_invalid_translation_json_retry_messages(
+                        retry_messages, retry_content
+                    )
     except AppError as exc:
         if "still contains Chinese or Korean source-language text" not in str(exc):
             raise
