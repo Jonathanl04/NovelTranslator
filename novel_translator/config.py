@@ -33,7 +33,7 @@ def save_config(config: dict[str, Any]) -> dict[str, str]:
         or settings.DEFAULT_GLOSSARY_MODEL
     ).strip()
     if translation_model not in settings.MODELS or glossary_model not in settings.MODELS:
-        raise AppError("Models must be deepseek-v4-flash or deepseek-v4-pro.")
+        raise AppError(f"Models must be one of: {', '.join(sorted(settings.MODELS))}.")
     saved = {
         "api_key": api_key,
         "translation_model": translation_model,

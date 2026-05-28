@@ -19,16 +19,23 @@ def call_deepseek(
     messages: list[dict[str, str]],
     opener: Any = urllib.request.urlopen,
 ) -> dict[str, Any]:
+    provider = settings.MODEL_PROVIDER_IDS.get(model)
     payload = {
-        "model": model,
+        "model": settings.MODEL_API_IDS.get(model, model),
         "messages": messages,
         "thinking": {"type": "disabled"},
+        "reasoning": {"effort": "none", "exclude": True},
         "temperature": 0.4,
         "stream": False,
         "response_format": {"type": "json_object"},
     }
+    if provider:
+        payload["provider"] = {
+            "only": [provider],
+            "allow_fallbacks": False,
+        }
     request = urllib.request.Request(
-        settings.DEEPSEEK_URL,
+        settings.OPENROUTER_URL,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",

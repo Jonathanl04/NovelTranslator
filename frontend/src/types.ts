@@ -1,4 +1,4 @@
-export type Model = "deepseek-v4-flash" | "deepseek-v4-pro";
+export type Model = "deepseek-v4-flash" | "deepseek-v4-pro" | "mimo-v2.5" | "mimo-v2.5-pro";
 
 export type Config = {
   has_api_key: boolean;

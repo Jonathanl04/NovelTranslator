@@ -336,7 +336,7 @@ def populate_glossary_for_chapter(
 ) -> list[dict[str, str]]:
     config = load_config()
     if not config["api_key"]:
-        raise AppError("DeepSeek API key is not configured.")
+        raise AppError("OpenRouter API key is not configured.")
 
     original = source_path(novel, filename).read_text(encoding="utf-8")
     title, body = split_chapter(original)
@@ -365,7 +365,7 @@ def translate_chapter(
 ) -> dict[str, Any]:
     config = load_config()
     if not config["api_key"]:
-        raise AppError("DeepSeek API key is not configured.")
+        raise AppError("OpenRouter API key is not configured.")
 
     original = source_path(novel, filename).read_text(encoding="utf-8")
     title, body = split_chapter(original)

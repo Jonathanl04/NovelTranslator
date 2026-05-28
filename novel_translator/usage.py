@@ -14,6 +14,16 @@ DEEPSEEK_PRICING_PER_MILLION = {
         "input_cache_miss": 0.435,
         "output": 0.87,
     },
+    "mimo-v2.5": {
+        "input_cache_hit": 0.0028,
+        "input_cache_miss": 0.14,
+        "output": 0.28,
+    },
+    "mimo-v2.5-pro": {
+        "input_cache_hit": 0.0036,
+        "input_cache_miss": 0.435,
+        "output": 0.87,
+    },
 }
 
 _empty_usage = {

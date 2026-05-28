@@ -19,7 +19,7 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 
 - Python 3.11 or newer.
 - Node.js 22.22.2, 24.15.0, 26.0.0, or newer for frontend development. The current app also builds on Node 24.12.0 with an npm engine warning from a transitive CLI package.
-- A DeepSeek API key.
+- An OpenRouter API key.
 - Downloader scripts use `requests`, `beautifulsoup4`, and `scrapling`.
 
 The backend uses only the Python standard library.
@@ -58,7 +58,7 @@ Open:
 http://127.0.0.1:5173
 ```
 
-Paste your DeepSeek API key in the UI and click `Save`. The key is stored locally in `data/translator_config.json`, which is ignored by git.
+Paste your OpenRouter API key in the UI and click `Save`. The key is stored locally in `data/translator_config.json`, which is ignored by git.
 
 ## Docker
 
@@ -90,12 +90,21 @@ The UI has two model selectors:
 - `Glossary model`: used for extracting novel terms before translation.
 - `Translation model`: used for translating the chapter.
 
+Requests use the OpenRouter chat completions API. Configure an OpenRouter API key in settings.
+
 Defaults:
 
-- Glossary: `deepseek-v4-pro`
+- Glossary: `deepseek-v4-flash`
 - Translation: `deepseek-v4-flash`
 
-Using the same model for both can improve DeepSeek cache-hit opportunities because glossary and translation prompts share a stable prefix.
+Supported models:
+
+- `deepseek-v4-flash`
+- `deepseek-v4-pro`
+- `mimo-v2.5`
+- `mimo-v2.5-pro`
+
+Using the same model for both can improve cache-hit opportunities because glossary and translation prompts share a stable prefix.
 
 ## Translation Flow
 

@@ -221,6 +221,61 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(DEEPSEEK_TIMEOUT_SECONDS, 300)
         self.assertEqual(seen["timeout"], 300)
 
+    def test_call_deepseek_uses_openrouter_model_id_with_same_parameters(self) -> None:
+        seen = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"usage": {"prompt_tokens": 1}}'
+
+        def fake_opener(request, timeout: int):
+            seen["url"] = request.full_url
+            seen["payload"] = json.loads(request.data.decode("utf-8"))
+            seen["authorization"] = request.headers["Authorization"]
+            return FakeResponse()
+
+        app.call_deepseek("secret", "mimo-v2.5-pro", [{"role": "user", "content": "Hi"}], fake_opener)
+
+        self.assertEqual(seen["url"], settings.OPENROUTER_URL)
+        self.assertEqual(seen["authorization"], "Bearer secret")
+        self.assertEqual(
+            seen["payload"],
+            {
+                "model": "xiaomi/mimo-v2.5-pro",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "thinking": {"type": "disabled"},
+                "reasoning": {"effort": "none", "exclude": True},
+                "temperature": 0.4,
+                "stream": False,
+                "response_format": {"type": "json_object"},
+                "provider": {
+                    "only": ["xiaomi"],
+                    "allow_fallbacks": False,
+                },
+            },
+        )
+
+    def test_save_config_accepts_openrouter_model_choices(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            saved = app.save_config(
+                {
+                    "api_key": "secret",
+                    "translation_model": "mimo-v2.5",
+                    "glossary_model": "mimo-v2.5-pro",
+                }
+            )
+
+        self.assertEqual(saved["translation_model"], "mimo-v2.5")
+        self.assertEqual(saved["glossary_model"], "mimo-v2.5-pro")
+
     def test_parse_translation_response_rejects_untranslated_chinese(self) -> None:
         payload = {
             "translated_title": "Chapter 1",

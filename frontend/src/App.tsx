@@ -41,7 +41,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const MODELS: Model[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
+const MODELS: Model[] = ["deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.5", "mimo-v2.5-pro"];
 const PRONOUNS = ["__none__", "male", "female", "unknown", "it"];
 
 type Page = "workspace" | "glossary";
@@ -76,6 +76,8 @@ const emptyUsage: Usage = {
   by_model: {
     "deepseek-v4-flash": emptyUsageBucket,
     "deepseek-v4-pro": emptyUsageBucket,
+    "mimo-v2.5": emptyUsageBucket,
+    "mimo-v2.5-pro": emptyUsageBucket,
   },
 };
 
@@ -808,7 +810,7 @@ function GlossaryPage({
             <h2 className="text-sm font-semibold">Settings</h2>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="api-key">DeepSeek API key</Label>
+            <Label htmlFor="api-key">OpenRouter API key</Label>
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <Input
                 id="api-key"
@@ -847,8 +849,9 @@ function GlossaryPage({
               Reset
             </Button>
           </div>
-          <UsageSummary label="Flash" usage={usage.by_model["deepseek-v4-flash"]} />
-          <UsageSummary label="Pro" usage={usage.by_model["deepseek-v4-pro"]} />
+          {MODELS.map((model) => (
+            <UsageSummary key={model} label={model} usage={usage.by_model[model] || emptyUsageBucket} />
+          ))}
           <UsageSummary label="Total" usage={usage.total} prominent />
         </section>
       </aside>
