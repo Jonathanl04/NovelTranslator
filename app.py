@@ -1,3 +1,4 @@
+from novel_translator.bulk_translate import get_bulk_state, load_bulk_state, save_bulk_state, start_bulk_translation
 from novel_translator.chapters import (
     chapter_label,
     cover_path,

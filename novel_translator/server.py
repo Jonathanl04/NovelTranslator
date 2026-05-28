@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import settings
+from .bulk_translate import get_bulk_state, start_bulk_translation
 from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
 from .errors import AppError
@@ -95,6 +96,13 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/bulk-translate":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.handle_bulk_translate(
+                    method,
+                    first(query, "novel") if method == "GET" else "",
+                )
+                return
             raise AppError("Not found.", 404)
         except AppError as exc:
             self.json({"error": str(exc)}, exc.status)
@@ -143,6 +151,20 @@ class Handler(BaseHTTPRequestHandler):
             self.json(reset_usage())
             return
         raise AppError("Method not allowed.", 405)
+
+    def handle_bulk_translate(self, method: str, novel: str) -> None:
+        if method == "GET":
+            self.json(get_bulk_state(novel))
+            return
+        if method != "POST":
+            raise AppError("Method not allowed.", 405)
+        data = self.body_json()
+        if not novel:
+            novel = str(data.get("novel", ""))
+        items = data.get("items", [])
+        if not isinstance(items, list):
+            raise AppError("items must be a list.")
+        self.json(start_bulk_translation(novel, items))
 
     def body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

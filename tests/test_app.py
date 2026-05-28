@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 import zipfile
 from io import BytesIO
@@ -379,12 +380,82 @@ class TranslatorAppTests(unittest.TestCase):
         app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
             encoding="utf-8"
         )
+        api_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "api.ts").read_text(
+            encoding="utf-8"
+        )
+        server_source = (Path(__file__).resolve().parents[1] / "novel_translator" / "server.py").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("runBulkTranslation", app_source)
         self.assertIn("Bulk Translate", app_source)
         self.assertIn("BulkProgress", app_source)
-        self.assertIn("api.translate(novel, item.filename)", app_source)
-        self.assertIn('status: "pending"', app_source)
+        self.assertIn("api.startBulkTranslation(novel, queue)", app_source)
+        self.assertIn("api.bulkTranslation(nextNovel)", app_source)
+        self.assertIn("/api/bulk-translate", api_source)
+        self.assertIn("/api/bulk-translate", server_source)
+
+    def test_model_select_changes_are_saved_immediately(self) -> None:
+        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("updateConfigModels({ glossary_model })", app_source)
+        self.assertIn("updateConfigModels({ translation_model })", app_source)
+        self.assertIn("keep_existing_key: true", app_source)
+
+    def test_single_translation_uses_persisted_queue_and_progress_status(self) -> None:
+        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('mode: "full" as const', app_source)
+        self.assertIn("showStatus(describeBulkProgress(state))", app_source)
+        self.assertIn("describeBulkProgress", app_source)
+
+    def test_bulk_translation_state_persists_to_disk(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seen = []
+
+            def fake_translate(
+                novel: str, filename: str, populate_glossary: bool = True
+            ) -> dict[str, str]:
+                seen.append((novel, filename, populate_glossary))
+                return {"filename": filename}
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ):
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [
+                        {"filename": "001.txt", "title": "Chapter 1", "status": "pending"},
+                        {"filename": "002.txt", "title": "Chapter 2", "status": "pending"},
+                    ],
+                )
+
+                deadline = time.time() + 2
+                state = bulk_translate.get_bulk_state("Book One")
+                while state["running"] and time.time() < deadline:
+                    time.sleep(0.02)
+                    state = bulk_translate.get_bulk_state("Book One")
+
+            self.assertFalse(state["running"])
+            self.assertEqual(
+                seen,
+                [
+                    ("Book One", "001.txt", True),
+                    ("Book One", "002.txt", True),
+                ],
+            )
+            self.assertEqual([item["status"] for item in state["items"]], ["done", "done"])
+            self.assertEqual(
+                json.loads((root / "data" / "bulk" / "Book One.json").read_text(encoding="utf-8"))["items"][0]["message"],
+                "Saved",
+            )
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

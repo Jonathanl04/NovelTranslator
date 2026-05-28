@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Check,
@@ -17,7 +17,17 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { api } from "./api";
-import type { Chapter, Config, GlossaryEntry, Model, NovelMetadata, Usage, UsageBucket } from "./types";
+import type {
+  BulkItem,
+  BulkTranslationState,
+  Chapter,
+  Config,
+  GlossaryEntry,
+  Model,
+  NovelMetadata,
+  Usage,
+  UsageBucket,
+} from "./types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,17 +53,10 @@ import { cn } from "@/lib/utils";
 
 const MODELS: Model[] = ["deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.5", "mimo-v2.5-pro"];
 const PRONOUNS = ["__none__", "male", "female", "unknown", "it"];
+const SELECTED_CHAPTER_STORAGE_KEY = "novel-translator:selected-chapter";
 
 type Page = "workspace" | "glossary";
 type ReaderTab = "raw" | "translated";
-type BulkStatus = "pending" | "translating" | "done" | "failed";
-
-type BulkItem = {
-  filename: string;
-  title: string;
-  status: BulkStatus;
-  message?: string;
-};
 
 const emptyConfig: Config = {
   has_api_key: false,
@@ -94,7 +97,8 @@ export function App() {
   const [translated, setTranslated] = useState("");
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [chapterSearch, setChapterSearch] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [manualBusy, setManualBusy] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
   const [usage, setUsage] = useState<Usage>(emptyUsage);
@@ -102,6 +106,9 @@ export function App() {
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
   const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+  const previousBulkState = useRef<BulkTranslationState | null>(null);
+  const configRequestVersion = useRef(0);
+  const busy = manualBusy || bulkRunning;
 
   const selectedChapter = useMemo(
     () => chapters.find((chapter) => chapter.filename === selectedFile),
@@ -154,6 +161,7 @@ export function App() {
   const selectChapter = useCallback(
     async (nextNovel: string, filename: string) => {
       setSelectedFile(filename);
+      localStorage.setItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${nextNovel}`, filename);
       const chapter = await api.chapter(nextNovel, filename);
       setSource(chapter.source);
       setTranslated(chapter.translated);
@@ -161,6 +169,30 @@ export function App() {
     },
     [showStatus]
   );
+
+  const loadBulkState = useCallback(async (nextNovel: string) => {
+    if (!nextNovel) {
+      setBulkItems([]);
+      setBulkRunning(false);
+      setBulkSelection(new Set());
+      previousBulkState.current = null;
+      return;
+    }
+    const state = await api.bulkTranslation(nextNovel);
+    setBulkItems(state.items);
+    setBulkRunning(state.running);
+    setBulkSelection(
+      new Set(
+        state.items
+          .filter((item) => item.status === "pending" || item.status === "translating")
+          .map((item) => item.filename)
+      )
+    );
+    previousBulkState.current = state;
+    if (state.running) {
+      showStatus(describeBulkProgress(state));
+    }
+  }, [showStatus]);
 
   const loadChapters = useCallback(
     async (nextNovel: string) => {
@@ -171,8 +203,8 @@ export function App() {
       setNovelMetadata(null);
       setChapterSearch("");
       setBulkSelection(new Set());
-      setBulkItems([]);
       await loadGlossary(nextNovel);
+      await loadBulkState(nextNovel);
       if (!nextNovel) {
         setChapters([]);
         return;
@@ -183,11 +215,14 @@ export function App() {
         .then(setNovelMetadata)
         .catch(() => setNovelMetadata(null));
       setChapters(nextChapters);
-      if (nextChapters[0]) {
-        await selectChapter(nextNovel, nextChapters[0].filename);
+      const storedSelectedFile = localStorage.getItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${nextNovel}`) || "";
+      const initialChapter =
+        nextChapters.find((chapter) => chapter.filename === storedSelectedFile) || nextChapters[0];
+      if (initialChapter) {
+        await selectChapter(nextNovel, initialChapter.filename);
       }
     },
-    [loadGlossary, selectChapter]
+    [loadBulkState, loadGlossary, selectChapter]
   );
 
   useEffect(() => {
@@ -219,7 +254,66 @@ export function App() {
     localStorage.setItem("theme", darkMode ? "dark" : "light");
   }, [darkMode]);
 
+  useEffect(() => {
+    if (!novel || !bulkRunning) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      api
+        .bulkTranslation(novel)
+        .then(async (state) => {
+          const previous = previousBulkState.current;
+          previousBulkState.current = state;
+          setBulkItems(state.items);
+          setBulkRunning(state.running);
+          setBulkSelection(
+            new Set(
+              state.items
+                .filter((item) => item.status === "pending" || item.status === "translating")
+                .map((item) => item.filename)
+            )
+          );
+          if (state.running) {
+            showStatus(describeBulkProgress(state));
+          }
+
+          const hasChanges =
+            !previous || JSON.stringify(previous.items) !== JSON.stringify(state.items);
+          const queueFinished = previous?.running && !state.running;
+          if (!hasChanges && !queueFinished) {
+            return;
+          }
+
+          const [nextChapters, nextUsage] = await Promise.all([api.chapters(novel), api.usage()]);
+          setChapters(nextChapters);
+          setUsage(nextUsage);
+          if (state.items.some((item) => item.status === "done" || item.status === "failed")) {
+            setGlossary(await api.glossary(novel));
+          }
+
+          if (selectedFile && state.items.some((item) => item.filename === selectedFile && item.status === "done")) {
+            const chapter = await api.chapter(novel, selectedFile);
+            setSource(chapter.source);
+            setTranslated(chapter.translated);
+          }
+
+          if (queueFinished) {
+            showStatus(
+              state.items.some((item) => item.status === "failed")
+                ? "Bulk translation stopped after a failure."
+                : "Bulk translation complete.",
+              state.items.some((item) => item.status === "failed")
+            );
+          }
+        })
+        .catch((caught) => showStatus(errorMessage(caught), true));
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [bulkRunning, novel, selectedFile, showStatus]);
+
   async function saveConfig() {
+    const requestVersion = ++configRequestVersion.current;
     try {
       const current = await api.config();
       const saved = await api.saveConfig({
@@ -228,6 +322,9 @@ export function App() {
         translation_model: config.translation_model,
         glossary_model: config.glossary_model,
       });
+      if (requestVersion !== configRequestVersion.current) {
+        return;
+      }
       setConfig(saved);
       setApiKey("");
       showStatus("Config saved.");
@@ -236,21 +333,61 @@ export function App() {
     }
   }
 
+  function updateConfigModels(patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) {
+    const previous = {
+      translation_model: config.translation_model,
+      glossary_model: config.glossary_model,
+    };
+    const nextConfig = { ...config, ...patch };
+    const requestVersion = ++configRequestVersion.current;
+    setConfig(nextConfig);
+    void api
+      .saveConfig({
+        keep_existing_key: true,
+        translation_model: nextConfig.translation_model,
+        glossary_model: nextConfig.glossary_model,
+      })
+      .then((saved) => {
+        if (requestVersion !== configRequestVersion.current) {
+          return;
+        }
+        setConfig((current) => ({ ...current, ...saved }));
+        showStatus("Model saved.");
+      })
+      .catch((caught) => {
+        if (requestVersion !== configRequestVersion.current) {
+          return;
+        }
+        setConfig((current) => ({ ...current, ...previous }));
+        showStatus(errorMessage(caught), true);
+      });
+  }
+
   async function runTranslation(mode: "full" | "only") {
     if (!novel || !selectedFile || busy) return;
-    setBusy(true);
-    showStatus(mode === "full" ? "Populating glossary, then translating..." : "Translating with current glossary...");
+    const chapter = chapters.find((item) => item.filename === selectedFile);
+    if (!chapter) return;
+    setManualBusy(true);
+    const queue = [
+      {
+        filename: chapter.filename,
+        title: chapter.title,
+        status: "pending" as const,
+        mode,
+      },
+    ];
+    showStatus(mode === "full" ? "Populating glossary and translating..." : "Translating with current glossary...");
     try {
-      const result = mode === "full" ? await api.translate(novel, selectedFile) : await api.translateOnly(novel, selectedFile);
-      setUsage(await api.usage());
-      setTranslated(result.translated);
-      setGlossary(result.glossary);
-      setChapters(await api.chapters(novel));
-      showStatus(`Saved ${result.output_path}`);
+      const state = await api.startBulkTranslation(novel, queue);
+      previousBulkState.current = state;
+      setBulkItems(state.items);
+      setBulkRunning(state.running);
+      setBulkSelection(new Set(queue.map((item) => item.filename)));
+      showStatus(describeBulkProgress(state));
     } catch (caught) {
       showStatus(errorMessage(caught), true);
     } finally {
-      setBusy(false);
+      setManualBusy(false);
     }
   }
 
@@ -271,55 +408,25 @@ export function App() {
       filename: chapter.filename,
       title: chapter.title,
       status: "pending" as const,
+      mode: "full" as const,
     }));
 
     setBulkItems(queue);
-    setBusy(true);
+    setManualBusy(true);
     showStatus(`Bulk translating ${queue.length} selected ${queue.length === 1 ? "chapter" : "chapters"}...`);
 
     try {
-      for (const item of queue) {
-        setBulkItems((current) =>
-          current.map((currentItem) =>
-            currentItem.filename === item.filename
-              ? { ...currentItem, status: "translating", message: "Translating..." }
-              : currentItem
-          )
-        );
-
-        try {
-          const result = await api.translate(novel, item.filename);
-          setUsage(await api.usage());
-          setGlossary(result.glossary);
-          if (item.filename === selectedFile) {
-            setTranslated(result.translated);
-          }
-          setBulkItems((current) =>
-            current.map((currentItem) =>
-              currentItem.filename === item.filename
-                ? { ...currentItem, status: "done", message: "Saved" }
-                : currentItem
-            )
-          );
-          setChapters(await api.chapters(novel));
-        } catch (caught) {
-          const message = errorMessage(caught);
-          setBulkItems((current) =>
-            current.map((currentItem) =>
-              currentItem.filename === item.filename
-                ? { ...currentItem, status: "failed", message }
-                : currentItem
-            )
-          );
-          showStatus(message, true);
-          return;
-        }
+      const state = await api.startBulkTranslation(novel, queue);
+      previousBulkState.current = state;
+      setBulkItems(state.items);
+      setBulkRunning(state.running);
+      setBulkSelection(new Set(queue.map((item) => item.filename)));
+      showStatus(describeBulkProgress(state));
+      if (!state.running) {
+        setBulkSelection(new Set());
       }
-
-      setBulkSelection(new Set());
-      showStatus("Bulk translation complete.");
     } finally {
-      setBusy(false);
+      setManualBusy(false);
     }
   }
 
@@ -486,7 +593,8 @@ export function App() {
                       type="button"
                       className={cn(
                         "grid min-h-11 w-full grid-cols-[1fr_auto] items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted",
-                        selectedFile === chapter.filename && "border-teal-700 bg-teal-50/70"
+                        selectedFile === chapter.filename &&
+                          "border-teal-700 bg-teal-50/70 dark:border-teal-400 dark:bg-teal-950/40"
                       )}
                       onClick={() => selectChapter(novel, chapter.filename).catch((caught) => showStatus(errorMessage(caught), true))}
                     >
@@ -531,13 +639,13 @@ export function App() {
                   id="glossary-model"
                   label="Glossary model"
                   value={config.glossary_model}
-                  onChange={(glossary_model) => setConfig((current) => ({ ...current, glossary_model }))}
+                  onChange={(glossary_model) => updateConfigModels({ glossary_model })}
                 />
                 <ModelSelect
                   id="translation-model"
                   label="Translation model"
                   value={config.translation_model}
-                  onChange={(translation_model) => setConfig((current) => ({ ...current, translation_model }))}
+                  onChange={(translation_model) => updateConfigModels({ translation_model })}
                 />
               </div>
             </section>
@@ -582,7 +690,7 @@ export function App() {
           novel={novel}
           usage={usage}
           onApiKeyChange={setApiKey}
-          onConfigChange={setConfig}
+          onConfigChange={updateConfigModels}
           onSaveConfig={saveConfig}
           onResetUsage={resetUsage}
           onAdd={addGlossaryEntry}
@@ -793,7 +901,7 @@ function GlossaryPage({
   novel: string;
   usage: Usage;
   onApiKeyChange: (value: string) => void;
-  onConfigChange: Dispatch<SetStateAction<Config>>;
+  onConfigChange: (patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) => void;
   onSaveConfig: () => void;
   onResetUsage: () => void;
   onAdd: () => void;
@@ -831,13 +939,13 @@ function GlossaryPage({
               id="glossary-model-settings"
               label="Glossary model"
               value={config.glossary_model}
-              onChange={(glossary_model) => onConfigChange((current) => ({ ...current, glossary_model }))}
+              onChange={(glossary_model) => onConfigChange({ glossary_model })}
             />
             <ModelSelect
               id="translation-model-settings"
               label="Translation model"
               value={config.translation_model}
-              onChange={(translation_model) => onConfigChange((current) => ({ ...current, translation_model }))}
+              onChange={(translation_model) => onConfigChange({ translation_model })}
             />
           </div>
         </section>
@@ -1046,7 +1154,7 @@ function BulkProgress({
   );
 }
 
-function BulkBadge({ status }: { status: BulkStatus }) {
+function BulkBadge({ status }: { status: BulkItem["status"] }) {
   if (status === "done") {
     return <Badge className="bg-teal-50 text-teal-800">done</Badge>;
   }
@@ -1106,6 +1214,28 @@ function cleanGlossary(entries: GlossaryEntry[]) {
       gender_or_pronoun: entry.gender_or_pronoun,
     }))
     .filter((entry) => entry.source_term && entry.english_term);
+}
+
+function describeBulkProgress(state: BulkTranslationState) {
+  const total = state.items.length;
+  const done = state.items.filter((item) => item.status === "done").length;
+  const failed = state.items.find((item) => item.status === "failed");
+  const active = state.items.find((item) => item.status === "translating");
+  const pending = state.items.find((item) => item.status === "pending");
+
+  if (failed) {
+    return `${failed.title} failed: ${failed.message || "Translation failed."}`;
+  }
+  if (active) {
+    return `${active.message || "Translating..."} ${active.title} (${done + 1}/${total})`;
+  }
+  if (pending) {
+    return `Queued ${pending.title} (${done}/${total} done)`;
+  }
+  if (total === 1) {
+    return `Translation complete: ${state.items[0]?.title || "chapter"}.`;
+  }
+  return `Bulk translation complete: ${done}/${total}.`;
 }
 
 function errorMessage(error: unknown) {

@@ -1,4 +1,6 @@
 import type {
+  BulkItem,
+  BulkTranslationState,
   Chapter,
   ChapterDetail,
   Config,
@@ -57,5 +59,12 @@ export const api = {
     request<TranslationResult>("/api/translate-only", {
       method: "POST",
       body: JSON.stringify({ novel, file }),
+    }),
+  bulkTranslation: (novel: string) =>
+    request<BulkTranslationState>(`/api/bulk-translate?novel=${encodeURIComponent(novel)}`),
+  startBulkTranslation: (novel: string, items: BulkItem[]) =>
+    request<BulkTranslationState>("/api/bulk-translate", {
+      method: "POST",
+      body: JSON.stringify({ novel, items }),
     }),
 };

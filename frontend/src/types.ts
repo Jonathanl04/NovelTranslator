@@ -54,3 +54,20 @@ export type Usage = {
   total: UsageBucket;
   by_model: Record<Model, UsageBucket>;
 };
+
+export type BulkStatus = "pending" | "translating" | "done" | "failed";
+export type BulkMode = "full" | "only";
+
+export type BulkItem = {
+  filename: string;
+  title: string;
+  status: BulkStatus;
+  mode?: BulkMode;
+  message?: string;
+};
+
+export type BulkTranslationState = {
+  novel: string;
+  running: boolean;
+  items: BulkItem[];
+};
