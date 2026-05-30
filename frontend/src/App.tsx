@@ -297,10 +297,23 @@ export function App() {
     }
   }
 
-  function useSavedSourceUrl(sourceUrl: string) {
+  async function useSavedSourceUrl(novelName: string, sourceUrl: string) {
     setScrapeUrl(sourceUrl);
     setPage("library");
-    showStatus("Source URL loaded.");
+    try {
+      const novelChapters = await api.chapters(novelName);
+      const lastChapter = novelChapters.reduce((max, chapter) => {
+        const match = chapter.filename.match(/^(\d+)/);
+        const number = match ? Number(match[1]) : 0;
+        return number > max ? number : max;
+      }, 0);
+      const nextStart = lastChapter + 1;
+      setScrapeStart(String(nextStart));
+      setScrapeEnd(String(nextStart + 29));
+      showStatus(`Source URL loaded. Ready to download chapters ${nextStart}-${nextStart + 29}.`);
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    }
   }
 
   useEffect(() => {
@@ -904,7 +917,7 @@ function BookLibraryPage({
   onScrapeStartChange: (value: string) => void;
   onScrapeEndChange: (value: string) => void;
   onScrape: () => void;
-  onUseSourceUrl: (sourceUrl: string) => void;
+  onUseSourceUrl: (novelName: string, sourceUrl: string) => void;
   onSelect: (novel: string) => void;
 }) {
   const scrapeBusy = scrapeState.running;
@@ -999,7 +1012,7 @@ function BookLibraryPage({
                 metadata={metadataByName[name]}
                 selected={name === selectedNovel}
                 onSelect={() => onSelect(name)}
-                onUseSourceUrl={metadataByName[name]?.source_url ? () => onUseSourceUrl(metadataByName[name].source_url || "") : undefined}
+                onUseSourceUrl={metadataByName[name]?.source_url ? () => onUseSourceUrl(name, metadataByName[name].source_url || "") : undefined}
               />
             ))}
           </div>
