@@ -18,11 +18,19 @@ def list_novels(output_root: Path | None = None) -> list[str]:
     output_root = output_root or settings.OUTPUT_ROOT
     if not output_root.exists():
         return []
-    return sorted(
+    novels = sorted(
         item.name
         for item in output_root.iterdir()
         if item.is_dir() and (item / "source").is_dir()
     )
+    for novel in novels:
+        try:
+            from .bulk_translate import enqueue_novel_name_translation
+
+            enqueue_novel_name_translation(novel)
+        except AppError:
+            pass
+    return novels
 
 
 def cover_path(novel: str, output_root: Path | None = None) -> Path | None:
@@ -41,9 +49,20 @@ def cover_path(novel: str, output_root: Path | None = None) -> Path | None:
 
 def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any]:
     safe_novel = safe_segment(novel, "novel")
+    try:
+        from .bulk_translate import enqueue_novel_name_translation
+        from .novel_names import load_novel_display_name
+
+        enqueue_novel_name_translation(safe_novel)
+        translated_name = load_novel_display_name(safe_novel, output_root)
+    except AppError:
+        from .novel_names import load_novel_display_name
+
+        translated_name = load_novel_display_name(safe_novel, output_root)
     path = cover_path(safe_novel, output_root)
     return {
         "name": safe_novel,
+        "translated_name": translated_name,
         "cover_url": f"/api/cover?novel={quote(safe_novel)}" if path else None,
     }
 

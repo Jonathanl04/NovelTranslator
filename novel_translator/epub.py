@@ -13,6 +13,7 @@ from typing import Any
 from . import settings
 from .chapters import cover_path, list_chapters, safe_segment, split_chapter, translated_path
 from .errors import AppError
+from .novel_names import ensure_translated_novel_name, load_novel_display_name
 
 
 def build_translated_epub(
@@ -32,6 +33,10 @@ def build_translated_epub(
         raise AppError("No translated chapters found to export.", 404)
 
     cover = cover_path(safe_novel, output_root)
+    try:
+        display_novel = ensure_translated_novel_name(safe_novel, output_root)
+    except AppError:
+        display_novel = load_novel_display_name(safe_novel, output_root)
     chapter_docs = [
         _chapter_doc(safe_novel, chapter, index, translated_root)
         for index, chapter in enumerate(chapters, start=1)
@@ -55,16 +60,16 @@ def build_translated_epub(
 </container>
 """,
         )
-        archive.writestr("OEBPS/content.opf", _content_opf(safe_novel, book_id, chapter_docs, cover))
-        archive.writestr("OEBPS/toc.ncx", _toc_ncx(safe_novel, book_id, chapter_docs))
-        archive.writestr("OEBPS/nav.xhtml", _nav_xhtml(safe_novel, chapter_docs))
+        archive.writestr("OEBPS/content.opf", _content_opf(display_novel, book_id, chapter_docs, cover))
+        archive.writestr("OEBPS/toc.ncx", _toc_ncx(display_novel, book_id, chapter_docs))
+        archive.writestr("OEBPS/nav.xhtml", _nav_xhtml(display_novel, chapter_docs))
         archive.writestr("OEBPS/styles.css", _styles_css())
         if cover:
             archive.write(cover, f"OEBPS/images/{cover.name}")
         for doc in chapter_docs:
             archive.writestr(f"OEBPS/{doc['href']}", doc["content"])
 
-    return buffer.getvalue(), f"{_download_stem(safe_novel)}.epub"
+    return buffer.getvalue(), f"{_download_stem(display_novel)}.epub"
 
 
 def _chapter_doc(

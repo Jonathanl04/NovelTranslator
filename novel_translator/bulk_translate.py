@@ -7,10 +7,12 @@ from . import settings
 from .config import safe_file_stem
 from .errors import AppError
 from .json_store import read_json, write_json
+from .novel_names import ensure_translated_novel_name, needs_translated_novel_name
 from .translation import translate_chapter
 
 ALLOWED_BULK_STATUSES = {"pending", "translating", "done", "failed"}
-ALLOWED_BULK_MODES = {"full", "only"}
+ALLOWED_BULK_MODES = {"full", "only", "name"}
+NOVEL_NAME_TRANSLATION_FILENAME = "__novel_name__"
 
 _bulk_lock = Lock()
 _bulk_workers: dict[str, Thread] = {}
@@ -86,6 +88,50 @@ def get_bulk_state(novel: str) -> dict[str, Any]:
         return state
 
 
+def enqueue_novel_name_translation(novel: str) -> dict[str, Any]:
+    safe_novel = novel.strip()
+    if not safe_novel:
+        return empty_bulk_state("")
+    with _bulk_lock:
+        state = load_bulk_state(safe_novel)
+        if not needs_translated_novel_name(safe_novel):
+            return state
+        existing = next(
+            (
+                item
+                for item in state["items"]
+                if item["mode"] == "name"
+                and item["filename"] == NOVEL_NAME_TRANSLATION_FILENAME
+                and item["status"] in {"pending", "translating", "done"}
+            ),
+            None,
+        )
+        if existing:
+            if _should_resume(state, safe_novel):
+                state = _prepare_state_for_resume(state)
+                save_bulk_state(safe_novel, state)
+                _start_worker(safe_novel)
+                state["running"] = True
+                save_bulk_state(safe_novel, state)
+            return state
+
+        state["items"] = [
+            {
+                "filename": NOVEL_NAME_TRANSLATION_FILENAME,
+                "title": "Novel title",
+                "status": "pending",
+                "mode": "name",
+                "message": "Queued for title translation",
+            },
+            *state["items"],
+        ]
+        state["running"] = True
+        save_bulk_state(safe_novel, state)
+        if not _is_worker_alive(safe_novel):
+            _start_worker(safe_novel)
+        return state
+
+
 def start_bulk_translation(novel: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     safe_novel = novel.strip()
     if not safe_novel:
@@ -152,20 +198,26 @@ def _process_bulk_translation_queue(novel: str) -> None:
                 for item in state["items"]:
                     if item["filename"] == current["filename"]:
                         item["status"] = "translating"
-                        item["message"] = (
-                            "Populating glossary and translating..."
-                            if current["mode"] == "full"
-                            else "Translating with current glossary..."
-                        )
+                        if current["mode"] == "name":
+                            item["message"] = "Translating novel title..."
+                        elif current["mode"] == "full":
+                            item["message"] = "Populating glossary and translating..."
+                        else:
+                            item["message"] = "Translating with current glossary..."
                         break
                 save_bulk_state(novel, state)
 
             try:
-                translate_chapter(
-                    novel,
-                    current["filename"],
-                    populate_glossary=current["mode"] == "full",
-                )
+                if current["mode"] == "name":
+                    ensure_translated_novel_name(novel)
+                    if needs_translated_novel_name(novel):
+                        raise AppError("OpenRouter API key is not configured.")
+                else:
+                    translate_chapter(
+                        novel,
+                        current["filename"],
+                        populate_glossary=current["mode"] == "full",
+                    )
             except Exception as exc:
                 with _bulk_lock:
                     state = load_bulk_state(novel)

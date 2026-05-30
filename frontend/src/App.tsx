@@ -90,6 +90,7 @@ export function App() {
   const [apiKey, setApiKey] = useState("");
   const [novels, setNovels] = useState<string[]>([]);
   const [novelMetadata, setNovelMetadata] = useState<NovelMetadata | null>(null);
+  const [novelMetadataByName, setNovelMetadataByName] = useState<Record<string, NovelMetadata>>({});
   const [novel, setNovel] = useState("");
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [selectedFile, setSelectedFile] = useState("");
@@ -150,6 +151,17 @@ export function App() {
     setError(isError);
   }, []);
 
+  const novelDisplayName = useCallback(
+    (name: string) => novelMetadataByName[name]?.translated_name || name,
+    [novelMetadataByName]
+  );
+
+  const loadNovelMetadata = useCallback(async (nextNovel: string) => {
+    const metadata = await api.novel(nextNovel);
+    setNovelMetadataByName((current) => ({ ...current, [nextNovel]: metadata }));
+    return metadata;
+  }, []);
+
   const loadGlossary = useCallback(async (nextNovel: string) => {
     if (!nextNovel) {
       setGlossary([]);
@@ -185,6 +197,7 @@ export function App() {
       new Set(
         state.items
           .filter((item) => item.status === "pending" || item.status === "translating")
+          .filter((item) => item.mode !== "name")
           .map((item) => item.filename)
       )
     );
@@ -210,8 +223,7 @@ export function App() {
         return;
       }
       const nextChapters = await api.chapters(nextNovel);
-      api
-        .novel(nextNovel)
+      loadNovelMetadata(nextNovel)
         .then(setNovelMetadata)
         .catch(() => setNovelMetadata(null));
       setChapters(nextChapters);
@@ -222,7 +234,7 @@ export function App() {
         await selectChapter(nextNovel, initialChapter.filename);
       }
     },
-    [loadBulkState, loadGlossary, selectChapter]
+    [loadBulkState, loadGlossary, loadNovelMetadata, selectChapter]
   );
 
   useEffect(() => {
@@ -235,6 +247,20 @@ export function App() {
         setConfig(nextConfig);
         setNovels(nextNovels);
         setUsage(nextUsage);
+        Promise.all(
+          nextNovels.map(async (name) => {
+            try {
+              return [name, await api.novel(name)] as const;
+            } catch {
+              return null;
+            }
+          })
+        ).then((entries) => {
+          if (!active) return;
+          setNovelMetadataByName(
+            Object.fromEntries(entries.filter((entry): entry is readonly [string, NovelMetadata] => entry !== null))
+          );
+        });
         if (nextNovels[0]) {
           await loadChapters(nextNovels[0]);
         }
@@ -270,6 +296,7 @@ export function App() {
             new Set(
               state.items
                 .filter((item) => item.status === "pending" || item.status === "translating")
+                .filter((item) => item.mode !== "name")
                 .map((item) => item.filename)
             )
           );
@@ -289,6 +316,10 @@ export function App() {
           setUsage(nextUsage);
           if (state.items.some((item) => item.status === "done" || item.status === "failed")) {
             setGlossary(await api.glossary(novel));
+          }
+          if (state.items.some((item) => item.mode === "name" && item.status === "done")) {
+            const metadata = await loadNovelMetadata(novel);
+            setNovelMetadata(metadata);
           }
 
           if (selectedFile && state.items.some((item) => item.filename === selectedFile && item.status === "done")) {
@@ -310,7 +341,7 @@ export function App() {
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [bulkRunning, novel, selectedFile, showStatus]);
+  }, [bulkRunning, loadNovelMetadata, novel, selectedFile, showStatus]);
 
   async function saveConfig() {
     const requestVersion = ++configRequestVersion.current;
@@ -553,10 +584,10 @@ export function App() {
                   <SelectTrigger className="w-full bg-background">
                     <SelectValue placeholder="No novels found" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
                     {novels.map((name) => (
                       <SelectItem key={name} value={name}>
-                        {name}
+                        {novelDisplayName(name)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -704,6 +735,7 @@ export function App() {
 }
 
 function NovelCover({ novel, metadata }: { novel: string; metadata: NovelMetadata | null }) {
+  const displayName = metadata?.translated_name || novel;
   if (!novel || !metadata?.cover_url) {
     return null;
   }
@@ -712,11 +744,11 @@ function NovelCover({ novel, metadata }: { novel: string; metadata: NovelMetadat
     <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-background p-2">
       <img
         src={metadata.cover_url}
-        alt={`${novel} cover`}
+        alt={`${displayName} cover`}
         className="aspect-[7/9] h-24 w-[72px] rounded-md object-cover"
       />
       <div className="min-w-0">
-        <div className="truncate text-sm font-semibold">{novel}</div>
+        <div className="truncate text-sm font-semibold">{displayName}</div>
       </div>
     </div>
   );

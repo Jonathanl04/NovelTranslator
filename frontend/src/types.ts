@@ -17,6 +17,7 @@ export type Chapter = {
 
 export type NovelMetadata = {
   name: string;
+  translated_name: string;
   cover_url: string | null;
 };
 
@@ -56,7 +57,7 @@ export type Usage = {
 };
 
 export type BulkStatus = "pending" | "translating" | "done" | "failed";
-export type BulkMode = "full" | "only";
+export type BulkMode = "full" | "only" | "name";
 
 export type BulkItem = {
   filename: string;

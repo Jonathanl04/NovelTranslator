@@ -77,7 +77,28 @@ class TranslatorAppTests(unittest.TestCase):
 
             self.assertEqual(app.cover_path("Book One", output), novel_dir / "cover.jpg")
             self.assertEqual(metadata["name"], "Book One")
+            self.assertEqual(metadata["translated_name"], "Book One")
             self.assertEqual(metadata["cover_url"], "/api/cover?novel=Book%20One")
+
+    def test_list_novels_queues_new_source_language_name_without_renaming_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            novel_dir = output / "修仙日记" / "source"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_第1章.txt").write_text("第1章\n\n正文", encoding="utf-8")
+
+            with patch.object(settings, "DATA_ROOT", root / "data"):
+                with patch("novel_translator.bulk_translate._start_worker"):
+                    self.assertEqual(app.list_novels(output), ["修仙日记"])
+
+                state = app.load_bulk_state("修仙日记")
+
+            self.assertTrue((output / "修仙日记" / "source").is_dir())
+            self.assertFalse((output / "Cultivation Diary").exists())
+            self.assertEqual(state["items"][0]["title"], "Novel title")
+            self.assertEqual(state["items"][0]["mode"], "name")
+            self.assertEqual(state["items"][0]["status"], "pending")
 
     def test_build_translated_epub_includes_toc_links_chapters_and_cover(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,6 +135,33 @@ class TranslatorAppTests(unittest.TestCase):
                 self.assertIn('src="chapters/chapter-0002.xhtml"', toc)
                 self.assertIn('properties="cover-image"', opf)
                 self.assertIn("First paragraph.", epub.read("OEBPS/chapters/chapter-0001.xhtml").decode("utf-8"))
+
+    def test_build_translated_epub_uses_cached_translated_novel_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            novel_dir = output / "修仙日记" / "source"
+            novel_dir.mkdir(parents=True)
+            (output / "修仙日记" / "metadata.json").write_text(
+                json.dumps({"translated_name": "Cultivation Diary"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (novel_dir / "001_第1章.txt").write_text("第1章\n\n正文", encoding="utf-8")
+            (translated / "修仙日记" / "translated").mkdir(parents=True)
+            (translated / "修仙日记" / "translated" / "001_第1章.txt").write_text(
+                "Chapter 1\n\nBody.", encoding="utf-8"
+            )
+
+            raw, filename = app.build_translated_epub("修仙日记", output, translated)
+
+            self.assertEqual(filename, "Cultivation Diary.epub")
+            self.assertTrue((output / "修仙日记" / "source").is_dir())
+            with zipfile.ZipFile(BytesIO(raw)) as epub:
+                opf = epub.read("OEBPS/content.opf").decode("utf-8")
+                nav = epub.read("OEBPS/nav.xhtml").decode("utf-8")
+                self.assertIn("<dc:title>Cultivation Diary</dc:title>", opf)
+                self.assertIn("<h1>Cultivation Diary</h1>", nav)
 
     def test_build_translated_epub_requires_translated_chapters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

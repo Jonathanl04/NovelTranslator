@@ -26,6 +26,13 @@ from novel_translator.glossary import (
     save_glossary,
 )
 from novel_translator.json_store import read_json, write_json
+from novel_translator.novel_names import (
+    build_novel_name_messages,
+    ensure_translated_novel_name,
+    load_novel_display_name,
+    novel_metadata_path,
+    parse_novel_name_response,
+)
 from novel_translator.server import Handler, first, main
 from novel_translator.settings import (
     ALLOWED_GENDERS,
