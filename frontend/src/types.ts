@@ -42,6 +42,13 @@ export type TranslationResult = {
   glossary: GlossaryEntry[];
 };
 
+export type ScrapeResult = {
+  novel: string;
+  output_dir: string;
+  chapter_count: number;
+  files: string[];
+};
+
 export type UsageBucket = {
   prompt_cache_hit_tokens: number;
   prompt_cache_miss_tokens: number;

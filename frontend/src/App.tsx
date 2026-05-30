@@ -102,6 +102,10 @@ export function App() {
   const [chapterSearch, setChapterSearch] = useState("");
   const [bookSearch, setBookSearch] = useState("");
   const [bookPage, setBookPage] = useState(1);
+  const [scrapeUrl, setScrapeUrl] = useState("");
+  const [scrapeStart, setScrapeStart] = useState("1");
+  const [scrapeEnd, setScrapeEnd] = useState("1");
+  const [scrapeBusy, setScrapeBusy] = useState(false);
   const [manualBusy, setManualBusy] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [status, setStatus] = useState("");
@@ -260,6 +264,32 @@ export function App() {
     },
     [loadChapters]
   );
+
+  async function runScrape() {
+    if (scrapeBusy) return;
+    const start = Number(scrapeStart);
+    const end = Number(scrapeEnd);
+    if (!scrapeUrl.trim() || !Number.isInteger(start) || !Number.isInteger(end)) {
+      showStatus("Enter a URL and chapter range.", true);
+      return;
+    }
+    setScrapeBusy(true);
+    showStatus("Downloading source chapters...");
+    try {
+      const result = await api.scrape({ url: scrapeUrl.trim(), start, end });
+      const nextNovels = await api.novels();
+      setNovels(nextNovels);
+      const metadata = await loadNovelMetadata(result.novel);
+      setNovelMetadataByName((current) => ({ ...current, [result.novel]: metadata }));
+      setBookSearch("");
+      showStatus(`Downloaded ${result.chapter_count} ${result.chapter_count === 1 ? "chapter" : "chapters"} for ${result.novel}.`);
+      await chooseNovel(result.novel);
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    } finally {
+      setScrapeBusy(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -616,8 +646,16 @@ export function App() {
           query={bookSearch}
           page={bookPage}
           pageCount={bookPageCount}
+          scrapeUrl={scrapeUrl}
+          scrapeStart={scrapeStart}
+          scrapeEnd={scrapeEnd}
+          scrapeBusy={scrapeBusy}
           onQueryChange={setBookSearch}
           onPageChange={setBookPage}
+          onScrapeUrlChange={setScrapeUrl}
+          onScrapeStartChange={setScrapeStart}
+          onScrapeEndChange={setScrapeEnd}
+          onScrape={runScrape}
           onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
         />
       ) : page === "workspace" ? (
@@ -779,8 +817,16 @@ function BookLibraryPage({
   query,
   page,
   pageCount,
+  scrapeUrl,
+  scrapeStart,
+  scrapeEnd,
+  scrapeBusy,
   onQueryChange,
   onPageChange,
+  onScrapeUrlChange,
+  onScrapeStartChange,
+  onScrapeEndChange,
+  onScrape,
   onSelect,
 }: {
   novels: string[];
@@ -791,13 +837,60 @@ function BookLibraryPage({
   query: string;
   page: number;
   pageCount: number;
+  scrapeUrl: string;
+  scrapeStart: string;
+  scrapeEnd: string;
+  scrapeBusy: boolean;
   onQueryChange: (value: string) => void;
   onPageChange: (page: number) => void;
+  onScrapeUrlChange: (value: string) => void;
+  onScrapeStartChange: (value: string) => void;
+  onScrapeEndChange: (value: string) => void;
+  onScrape: () => void;
   onSelect: (novel: string) => void;
 }) {
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20">
       <section className="mx-auto grid w-full max-w-7xl gap-4 p-4">
+        <section className="grid gap-3 rounded-lg border bg-background p-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="grid min-w-64 flex-1 gap-1.5">
+              <Label htmlFor="scrape-url">Source URL</Label>
+              <Input
+                id="scrape-url"
+                type="url"
+                value={scrapeUrl}
+                placeholder="https://www.69shuba.com/book/77582.htm"
+                onChange={(event) => onScrapeUrlChange(event.target.value)}
+              />
+            </div>
+            <div className="grid w-28 gap-1.5">
+              <Label htmlFor="scrape-start">Start</Label>
+              <Input
+                id="scrape-start"
+                type="number"
+                min={1}
+                value={scrapeStart}
+                onChange={(event) => onScrapeStartChange(event.target.value)}
+              />
+            </div>
+            <div className="grid w-28 gap-1.5">
+              <Label htmlFor="scrape-end">End</Label>
+              <Input
+                id="scrape-end"
+                type="number"
+                min={1}
+                value={scrapeEnd}
+                onChange={(event) => onScrapeEndChange(event.target.value)}
+              />
+            </div>
+            <Button type="button" className="min-w-32" disabled={scrapeBusy} onClick={onScrape}>
+              <Download />
+              {scrapeBusy ? "Downloading" : "Download"}
+            </Button>
+          </div>
+        </section>
+
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid gap-1">
             <h2 className="text-xl font-semibold">Books</h2>

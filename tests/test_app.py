@@ -424,6 +424,19 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("exportEpubUrl", api_source)
         self.assertIn("/api/export/epub", api_source)
 
+    def test_scraper_is_connected_to_api_and_ui(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        app_source = (root / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        api_source = (root / "frontend" / "src" / "api.ts").read_text(encoding="utf-8")
+        server_source = (root / "novel_translator" / "server.py").read_text(encoding="utf-8")
+
+        self.assertIn("Source URL", app_source)
+        self.assertIn("api.scrape", app_source)
+        self.assertIn("/api/scrape", api_source)
+        self.assertIn("handle_scrape", server_source)
+        self.assertIn("download_69shuba_range", server_source)
+        self.assertIn("download_uukanshu_range", server_source)
+
     def test_bulk_translation_progress_ui_is_rendered(self) -> None:
         app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
             encoding="utf-8"

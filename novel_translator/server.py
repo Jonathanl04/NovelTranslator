@@ -6,6 +6,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from scraper.download_69shuba import download_range as download_69shuba_range
+from scraper.download_uukanshu import download_range as download_uukanshu_range
+
 from . import settings
 from .bulk_translate import get_bulk_state, start_bulk_translation
 from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
@@ -65,6 +68,9 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and parsed.path == "/api/chapters":
                 query = urllib.parse.parse_qs(parsed.query)
                 self.json(list_chapters(first(query, "novel")))
+                return
+            if method == "POST" and parsed.path == "/api/scrape":
+                self.handle_scrape()
                 return
             if method == "GET" and parsed.path == "/api/chapter":
                 query = urllib.parse.parse_qs(parsed.query)
@@ -165,6 +171,36 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(items, list):
             raise AppError("items must be a list.")
         self.json(start_bulk_translation(novel, items))
+
+    def handle_scrape(self) -> None:
+        data = self.body_json()
+        url = str(data.get("url", "")).strip()
+        try:
+            start = int(data.get("start", 0))
+            end = int(data.get("end", 0))
+        except (TypeError, ValueError) as exc:
+            raise AppError("start and end must be chapter numbers.") from exc
+        if not url:
+            raise AppError("url is required.")
+        if start < 1 or end < start:
+            raise AppError("Invalid chapter range: start must be >= 1 and end must be >= start.")
+
+        host = urllib.parse.urlparse(url).netloc.lower()
+        try:
+            if host in {"69shuba.com", "www.69shuba.com"}:
+                result = download_69shuba_range(url, start, end, settings.OUTPUT_ROOT)
+            elif host in {"uukanshu.cc", "www.uukanshu.cc"}:
+                result = download_uukanshu_range(url, start, end, settings.OUTPUT_ROOT)
+            else:
+                raise AppError("Supported scraper URLs are 69shuba.com and uukanshu.cc.")
+        except AppError:
+            raise
+        except ValueError as exc:
+            raise AppError(str(exc)) from exc
+        except Exception as exc:
+            raise AppError(f"Scrape failed: {exc}", 502) from exc
+
+        self.json(result)
 
     def body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

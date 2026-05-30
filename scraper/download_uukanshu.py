@@ -21,6 +21,13 @@ FETCH_OPTIONS = {
     "wait": 500,
     "locale": "zh-TW",
 }
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
 
 CHINESE_DIGITS = {
     "零": 0,
@@ -68,11 +75,27 @@ CHINESE_LARGE_UNITS = {
 }
 
 
+def jina_reader_url(url: str) -> str:
+    return f"https://r.jina.ai/{url}"
+
+
 def fetch_text(url: str) -> str:
-    response = StealthyFetcher.fetch(url, **FETCH_OPTIONS)
-    if response.status >= 400:
-        raise RuntimeError(f"Failed to fetch {url}: HTTP {response.status}")
-    return response.html_content
+    try:
+        response = StealthyFetcher.fetch(url, **FETCH_OPTIONS)
+        if response.status < 400 and response.html_content.strip():
+            return response.html_content
+        failure = f"HTTP {response.status}"
+    except Exception as exc:
+        failure = str(exc)
+
+    reader_response = requests.get(jina_reader_url(url), headers=REQUEST_HEADERS, timeout=60)
+    if reader_response.status_code >= 400:
+        raise RuntimeError(
+            f"Failed to fetch {url}: {failure}; r.jina.ai fallback returned HTTP {reader_response.status_code}"
+        )
+    if not reader_response.text.strip():
+        raise RuntimeError(f"Failed to fetch {url}: {failure}; r.jina.ai fallback returned an empty page")
+    return reader_response.text
 
 
 def markdown_content(page_text: str) -> str:
@@ -119,11 +142,7 @@ def download_cover(cover_url: str | None, output_dir: Path, referer: str) -> Non
     response = requests.get(
         cover_url,
         headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
+            **REQUEST_HEADERS,
             "Referer": referer,
         },
         timeout=30,
@@ -308,33 +327,46 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8")
-    args = parse_args()
-    if args.start < 1 or args.end < args.start:
+def download_range(url: str, start: int, end: int, output_root: Path = OUTPUT_ROOT) -> dict[str, object]:
+    if start < 1 or end < start:
         raise ValueError("Invalid chapter range: start must be >= 1 and end must be >= start.")
 
-    book_id = infer_book_id(args.url)
-    index_text = fetch_text(args.url)
+    book_id = infer_book_id(url)
+    index_text = fetch_text(url)
     book_name = safe_name(extract_book_name(index_text))
-    cover_url = extract_cover_url(index_text, args.url)
+    cover_url = extract_cover_url(index_text, url)
     chapters = extract_chapter_links(index_text, book_id)
 
-    selected = [item for item in chapters if args.start <= item[0] <= args.end]
+    selected = [item for item in chapters if start <= item[0] <= end]
     if not selected:
         raise RuntimeError("No chapters matched the requested range.")
 
-    book_output_dir = OUTPUT_ROOT / book_name / "source"
+    book_output_dir = output_root / book_name / "source"
     book_output_dir.mkdir(parents=True, exist_ok=True)
-    download_cover(cover_url, book_output_dir, args.url)
+    download_cover(cover_url, book_output_dir, url)
 
+    files: list[str] = []
     for chapter_number, fallback_title, url in selected:
         page_text = fetch_text(url)
         title, content = extract_chapter_text(page_text, fallback_title)
         file_name = f"{chapter_number:03d}_{safe_name(title)}.txt"
         remove_existing_chapter_files(book_output_dir, chapter_number)
         (book_output_dir / file_name).write_text(f"{title}\n\n{content}\n", encoding="utf-8")
+        files.append(file_name)
         print(f"Saved {chapter_number}: {file_name}")
+
+    return {
+        "novel": book_name,
+        "output_dir": str(book_output_dir),
+        "chapter_count": len(files),
+        "files": files,
+    }
+
+
+def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    args = parse_args()
+    download_range(args.url, args.start, args.end)
 
 
 if __name__ == "__main__":

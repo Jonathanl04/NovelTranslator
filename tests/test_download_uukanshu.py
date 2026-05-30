@@ -3,10 +3,14 @@ from __future__ import annotations
 import unittest
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from scraper.download_uukanshu import (
     extract_chapter_links,
     extract_cover_url,
+    fetch_text,
+    jina_reader_url,
     parse_chapter_number,
     remove_existing_chapter_files,
 )
@@ -53,6 +57,17 @@ class UukanshuDownloaderTests(unittest.TestCase):
         links = extract_chapter_links(index_text, "26855")
 
         self.assertEqual([item[0] for item in links], [1, 12, 129])
+
+    def test_fetch_text_falls_back_to_jina_reader(self) -> None:
+        with patch("scraper.download_uukanshu.StealthyFetcher.fetch") as fetch:
+            fetch.return_value = SimpleNamespace(status=403, html_content="")
+            with patch("scraper.download_uukanshu.requests.get") as get:
+                get.return_value = SimpleNamespace(status_code=200, text="Markdown Content:\n正文")
+
+                self.assertEqual(fetch_text("https://uukanshu.cc/book/25771/"), "Markdown Content:\n正文")
+
+        get.assert_called_once()
+        self.assertEqual(get.call_args.args[0], jina_reader_url("https://uukanshu.cc/book/25771/"))
 
     def test_extract_cover_url_handles_html_thumbnail(self) -> None:
         index_text = """

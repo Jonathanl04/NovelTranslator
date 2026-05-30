@@ -3,12 +3,16 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from scraper.download_69shuba import (
     extract_book_name,
     extract_chapter_links,
     extract_chapter_text,
     extract_cover_url,
+    fetch_text,
+    jina_reader_url,
     parse_chapter_number,
     remove_existing_chapter_files,
 )
@@ -52,6 +56,16 @@ class ShubaDownloaderTests(unittest.TestCase):
         links = extract_chapter_links(index_text, "77582")
 
         self.assertEqual([item[0] for item in links], [1, 10])
+
+    def test_fetch_text_falls_back_to_jina_reader(self) -> None:
+        with patch("scraper.download_69shuba.StealthyFetcher.fetch", side_effect=RuntimeError("blocked")):
+            with patch("scraper.download_69shuba.requests.get") as get:
+                get.return_value = SimpleNamespace(status_code=200, text="Markdown Content:\n正文")
+
+                self.assertEqual(fetch_text("https://www.69shuba.com/book/77582.htm"), "Markdown Content:\n正文")
+
+        get.assert_called_once()
+        self.assertEqual(get.call_args.args[0], jina_reader_url("https://www.69shuba.com/book/77582.htm"))
 
     def test_extract_book_name_from_mirror_title(self) -> None:
         index_text = "Title: 合成系巫师最新章节列表,合成系巫师无弹窗广告-69书吧\n\nMarkdown Content:\n"

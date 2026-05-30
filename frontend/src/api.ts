@@ -7,6 +7,7 @@ import type {
   GlossaryEntry,
   Model,
   NovelMetadata,
+  ScrapeResult,
   TranslationResult,
   Usage,
 } from "./types";
@@ -38,6 +39,11 @@ export const api = {
     request<NovelMetadata>(`/api/novel?novel=${encodeURIComponent(novel)}`),
   chapters: (novel: string) =>
     request<Chapter[]>(`/api/chapters?novel=${encodeURIComponent(novel)}`),
+  scrape: (payload: { url: string; start: number; end: number }) =>
+    request<ScrapeResult>("/api/scrape", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   chapter: (novel: string, file: string) =>
     request<ChapterDetail>(
       `/api/chapter?novel=${encodeURIComponent(novel)}&file=${encodeURIComponent(file)}`
