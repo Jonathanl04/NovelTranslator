@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 from . import settings
 from .errors import AppError
+from .json_store import read_json
 from .source_language import contains_source_language_text
 
 
@@ -48,6 +49,7 @@ def cover_path(novel: str, output_root: Path | None = None) -> Path | None:
 
 
 def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any]:
+    output_root = output_root or settings.OUTPUT_ROOT
     safe_novel = safe_segment(novel, "novel")
     try:
         from .bulk_translate import enqueue_novel_name_translation
@@ -60,10 +62,13 @@ def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any
 
         translated_name = load_novel_display_name(safe_novel, output_root)
     path = cover_path(safe_novel, output_root)
+    metadata = read_json(output_root / safe_novel / "metadata.json", {})
+    source_url = str(metadata.get("source_url", "")).strip() if isinstance(metadata, dict) else ""
     return {
         "name": safe_novel,
         "translated_name": translated_name,
         "cover_url": f"/api/cover?novel={quote(safe_novel)}" if path else None,
+        "source_url": source_url or None,
     }
 
 

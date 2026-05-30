@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import mimetypes
 import os
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -73,6 +75,7 @@ CHINESE_LARGE_UNITS = {
     "億": 100_000_000,
     "亿": 100_000_000,
 }
+ProgressCallback = Callable[[dict[str, object]], None]
 
 
 def jina_reader_url(url: str) -> str:
@@ -342,10 +345,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def download_range(url: str, start: int, end: int, output_root: Path = OUTPUT_ROOT) -> dict[str, object]:
+def save_source_url(output_dir: Path, novel: str, source_url: str) -> None:
+    metadata_path = output_dir.parent / "metadata.json"
+    metadata: dict[str, object] = {}
+    if metadata_path.exists():
+        try:
+            loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                metadata = loaded
+        except json.JSONDecodeError:
+            metadata = {}
+    metadata["name"] = novel
+    metadata["source_url"] = source_url
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def download_range(
+    url: str,
+    start: int,
+    end: int,
+    output_root: Path = OUTPUT_ROOT,
+    progress: ProgressCallback | None = None,
+) -> dict[str, object]:
     if start < 1 or end < start:
         raise ValueError("Invalid chapter range: start must be >= 1 and end must be >= start.")
 
+    if progress:
+        progress({"stage": "fetching", "current": 0, "total": 0, "message": "Fetching book pages..."})
     book_id = infer_book_id(url)
     book_page_text = fetch_text(url)
     index_text = fetch_text(chapter_index_url(book_id))
@@ -359,20 +385,52 @@ def download_range(url: str, start: int, end: int, output_root: Path = OUTPUT_RO
 
     book_output_dir = output_root / book_name / "source"
     book_output_dir.mkdir(parents=True, exist_ok=True)
+    save_source_url(book_output_dir, book_name, url)
+    if progress:
+        progress(
+            {
+                "stage": "downloading",
+                "current": 0,
+                "total": len(selected),
+                "message": f"Downloading {len(selected)} chapters...",
+                "novel": book_name,
+            }
+        )
     download_cover(cover_url, book_output_dir, url)
 
     files: list[str] = []
-    for chapter_number, fallback_title, url in selected:
-        page_text = fetch_text(url)
+    for index, (chapter_number, fallback_title, chapter_url) in enumerate(selected, start=1):
+        if progress:
+            progress(
+                {
+                    "stage": "downloading",
+                    "current": index - 1,
+                    "total": len(selected),
+                    "message": f"Downloading chapter {chapter_number}: {fallback_title}",
+                    "novel": book_name,
+                }
+            )
+        page_text = fetch_text(chapter_url)
         title, content = extract_chapter_text(page_text, fallback_title)
         file_name = f"{chapter_number:03d}_{safe_name(title)}.txt"
         remove_existing_chapter_files(book_output_dir, chapter_number)
         (book_output_dir / file_name).write_text(f"{title}\n\n{content}\n", encoding="utf-8")
         files.append(file_name)
         print(f"Saved {chapter_number}: {file_name}")
+        if progress:
+            progress(
+                {
+                    "stage": "downloading",
+                    "current": index,
+                    "total": len(selected),
+                    "message": f"Saved chapter {chapter_number}: {title}",
+                    "novel": book_name,
+                }
+            )
 
     return {
         "novel": book_name,
+        "source_url": url,
         "output_dir": str(book_output_dir),
         "chapter_count": len(files),
         "files": files,

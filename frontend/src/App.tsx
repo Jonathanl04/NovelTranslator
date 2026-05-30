@@ -8,6 +8,7 @@ import {
   Download,
   Eraser,
   Library,
+  Link,
   Search,
   Moon,
   Plus,
@@ -26,6 +27,7 @@ import type {
   GlossaryEntry,
   Model,
   NovelMetadata,
+  ScrapeState,
   Usage,
   UsageBucket,
 } from "./types";
@@ -86,6 +88,17 @@ const emptyUsage: Usage = {
   },
 };
 
+const emptyScrapeState: ScrapeState = {
+  running: false,
+  stage: "idle",
+  current: 0,
+  total: 0,
+  message: "",
+  novel: "",
+  result: null,
+  error: "",
+};
+
 export function App() {
   const [page, setPage] = useState<Page>("library");
   const [config, setConfig] = useState<Config>(emptyConfig);
@@ -105,7 +118,7 @@ export function App() {
   const [scrapeUrl, setScrapeUrl] = useState("");
   const [scrapeStart, setScrapeStart] = useState("1");
   const [scrapeEnd, setScrapeEnd] = useState("1");
-  const [scrapeBusy, setScrapeBusy] = useState(false);
+  const [scrapeState, setScrapeState] = useState<ScrapeState>(emptyScrapeState);
   const [manualBusy, setManualBusy] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [status, setStatus] = useState("");
@@ -116,8 +129,10 @@ export function App() {
   const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
   const previousBulkState = useRef<BulkTranslationState | null>(null);
+  const handledScrapeResult = useRef("");
   const configRequestVersion = useRef(0);
   const busy = manualBusy || bulkRunning;
+  const scrapeBusy = scrapeState.running;
 
   const selectedChapter = useMemo(
     () => chapters.find((chapter) => chapter.filename === selectedFile),
@@ -273,22 +288,19 @@ export function App() {
       showStatus("Enter a URL and chapter range.", true);
       return;
     }
-    setScrapeBusy(true);
+    handledScrapeResult.current = "";
     showStatus("Downloading source chapters...");
     try {
-      const result = await api.scrape({ url: scrapeUrl.trim(), start, end });
-      const nextNovels = await api.novels();
-      setNovels(nextNovels);
-      const metadata = await loadNovelMetadata(result.novel);
-      setNovelMetadataByName((current) => ({ ...current, [result.novel]: metadata }));
-      setBookSearch("");
-      showStatus(`Downloaded ${result.chapter_count} ${result.chapter_count === 1 ? "chapter" : "chapters"} for ${result.novel}.`);
-      await chooseNovel(result.novel);
+      setScrapeState(await api.scrape({ url: scrapeUrl.trim(), start, end }));
     } catch (caught) {
       showStatus(errorMessage(caught), true);
-    } finally {
-      setScrapeBusy(false);
     }
+  }
+
+  function useSavedSourceUrl(sourceUrl: string) {
+    setScrapeUrl(sourceUrl);
+    setPage("library");
+    showStatus("Source URL loaded.");
   }
 
   useEffect(() => {
@@ -296,11 +308,17 @@ export function App() {
 
     async function boot() {
       try {
-        const [nextConfig, nextNovels, nextUsage] = await Promise.all([api.config(), api.novels(), api.usage()]);
+        const [nextConfig, nextNovels, nextUsage, nextScrapeState] = await Promise.all([
+          api.config(),
+          api.novels(),
+          api.usage(),
+          api.scrapeState(),
+        ]);
         if (!active) return;
         setConfig(nextConfig);
         setNovels(nextNovels);
         setUsage(nextUsage);
+        setScrapeState(nextScrapeState);
         Promise.all(
           nextNovels.map(async (name) => {
             try {
@@ -325,6 +343,43 @@ export function App() {
       active = false;
     };
   }, [showStatus]);
+
+  useEffect(() => {
+    if (!scrapeState.running) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      api.scrapeState().then(setScrapeState).catch((caught) => showStatus(errorMessage(caught), true));
+    }, 800);
+    return () => window.clearInterval(interval);
+  }, [scrapeState.running, showStatus]);
+
+  useEffect(() => {
+    if (scrapeState.stage === "failed" && scrapeState.error) {
+      showStatus(scrapeState.message || scrapeState.error, true);
+      return;
+    }
+    if (scrapeState.stage !== "done" || !scrapeState.result) {
+      return;
+    }
+    const key = `${scrapeState.result.novel}:${scrapeState.result.chapter_count}:${scrapeState.result.files.join("|")}`;
+    if (handledScrapeResult.current === key) {
+      return;
+    }
+    handledScrapeResult.current = key;
+    async function refreshAfterScrape() {
+      const result = scrapeState.result;
+      if (!result) return;
+      const nextNovels = await api.novels();
+      setNovels(nextNovels);
+      const metadata = await loadNovelMetadata(result.novel);
+      setNovelMetadataByName((current) => ({ ...current, [result.novel]: metadata }));
+      setBookSearch("");
+      showStatus(`Downloaded ${result.chapter_count} ${result.chapter_count === 1 ? "chapter" : "chapters"} for ${result.novel}.`);
+      await chooseNovel(result.novel);
+    }
+    refreshAfterScrape().catch((caught) => showStatus(errorMessage(caught), true));
+  }, [chooseNovel, loadNovelMetadata, scrapeState, showStatus]);
 
   useEffect(() => {
     setBookPage(1);
@@ -649,13 +704,14 @@ export function App() {
           scrapeUrl={scrapeUrl}
           scrapeStart={scrapeStart}
           scrapeEnd={scrapeEnd}
-          scrapeBusy={scrapeBusy}
+          scrapeState={scrapeState}
           onQueryChange={setBookSearch}
           onPageChange={setBookPage}
           onScrapeUrlChange={setScrapeUrl}
           onScrapeStartChange={setScrapeStart}
           onScrapeEndChange={setScrapeEnd}
           onScrape={runScrape}
+          onUseSourceUrl={useSavedSourceUrl}
           onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
         />
       ) : page === "workspace" ? (
@@ -820,13 +876,14 @@ function BookLibraryPage({
   scrapeUrl,
   scrapeStart,
   scrapeEnd,
-  scrapeBusy,
+  scrapeState,
   onQueryChange,
   onPageChange,
   onScrapeUrlChange,
   onScrapeStartChange,
   onScrapeEndChange,
   onScrape,
+  onUseSourceUrl,
   onSelect,
 }: {
   novels: string[];
@@ -840,15 +897,20 @@ function BookLibraryPage({
   scrapeUrl: string;
   scrapeStart: string;
   scrapeEnd: string;
-  scrapeBusy: boolean;
+  scrapeState: ScrapeState;
   onQueryChange: (value: string) => void;
   onPageChange: (page: number) => void;
   onScrapeUrlChange: (value: string) => void;
   onScrapeStartChange: (value: string) => void;
   onScrapeEndChange: (value: string) => void;
   onScrape: () => void;
+  onUseSourceUrl: (sourceUrl: string) => void;
   onSelect: (novel: string) => void;
 }) {
+  const scrapeBusy = scrapeState.running;
+  const progressValue =
+    scrapeState.total > 0 ? Math.min(100, Math.round((scrapeState.current / scrapeState.total) * 100)) : 0;
+
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20">
       <section className="mx-auto grid w-full max-w-7xl gap-4 p-4">
@@ -889,6 +951,24 @@ function BookLibraryPage({
               {scrapeBusy ? "Downloading" : "Download"}
             </Button>
           </div>
+          {(scrapeBusy || scrapeState.stage === "done" || scrapeState.stage === "failed") && (
+            <div className="grid gap-1">
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    scrapeState.stage === "failed" ? "bg-destructive" : "bg-teal-700"
+                  )}
+                  style={{ width: `${scrapeState.total > 0 ? progressValue : scrapeBusy ? 12 : 100}%` }}
+                />
+              </div>
+              <div className={cn("text-xs text-muted-foreground", scrapeState.stage === "failed" && "text-destructive")}>
+                {scrapeState.total > 0
+                  ? `${formatInteger(scrapeState.current)} of ${formatInteger(scrapeState.total)} chapters · ${scrapeState.message || scrapeState.stage}`
+                  : scrapeState.message || scrapeState.stage}
+              </div>
+            </div>
+          )}
         </section>
 
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -919,6 +999,7 @@ function BookLibraryPage({
                 metadata={metadataByName[name]}
                 selected={name === selectedNovel}
                 onSelect={() => onSelect(name)}
+                onUseSourceUrl={metadataByName[name]?.source_url ? () => onUseSourceUrl(metadataByName[name].source_url || "") : undefined}
               />
             ))}
           </div>
@@ -965,38 +1046,46 @@ function BookCard({
   metadata,
   selected,
   onSelect,
+  onUseSourceUrl,
 }: {
   name: string;
   metadata?: NovelMetadata;
   selected: boolean;
   onSelect: () => void;
+  onUseSourceUrl?: () => void;
 }) {
   const displayName = metadata?.translated_name || name;
   return (
-    <button
-      type="button"
+    <div
       className={cn(
         "group grid min-w-0 gap-2 rounded-lg border bg-background p-2 text-left transition-colors hover:border-teal-700 hover:bg-teal-50/40 dark:hover:border-teal-400 dark:hover:bg-teal-950/20",
         selected && "border-teal-700 bg-teal-50/70 dark:border-teal-400 dark:bg-teal-950/40"
       )}
-      onClick={onSelect}
     >
-      <div className="aspect-[7/9] overflow-hidden rounded-md border bg-muted">
-        {metadata?.cover_url ? (
-          <img src={metadata.cover_url} alt={`${displayName} cover`} className="h-full w-full object-cover" />
-        ) : (
-          <div className="grid h-full place-items-center text-muted-foreground">
-            <BookOpen className="size-10" />
-          </div>
-        )}
-      </div>
-      <div className="grid min-w-0 gap-1">
-        <div className="line-clamp-2 min-h-10 [overflow-wrap:anywhere] text-sm font-semibold leading-tight">
-          {displayName}
+      <button type="button" className="grid min-w-0 gap-2 text-left" onClick={onSelect}>
+        <div className="aspect-[7/9] overflow-hidden rounded-md border bg-muted">
+          {metadata?.cover_url ? (
+            <img src={metadata.cover_url} alt={`${displayName} cover`} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-muted-foreground">
+              <BookOpen className="size-10" />
+            </div>
+          )}
         </div>
-        {displayName !== name && <div className="truncate text-xs text-muted-foreground">{name}</div>}
-      </div>
-    </button>
+        <div className="grid min-w-0 gap-1">
+          <div className="line-clamp-2 min-h-10 [overflow-wrap:anywhere] text-sm font-semibold leading-tight">
+            {displayName}
+          </div>
+          {displayName !== name && <div className="truncate text-xs text-muted-foreground">{name}</div>}
+        </div>
+      </button>
+      {onUseSourceUrl && (
+        <Button type="button" variant="outline" size="sm" onClick={onUseSourceUrl}>
+          <Link />
+          Use Link
+        </Button>
+      )}
+    </div>
   );
 }
 

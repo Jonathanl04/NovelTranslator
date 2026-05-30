@@ -72,6 +72,10 @@ class TranslatorAppTests(unittest.TestCase):
             novel_dir = output / "Book One" / "source"
             novel_dir.mkdir(parents=True)
             (novel_dir / "cover.jpg").write_bytes(b"cover")
+            (output / "Book One" / "metadata.json").write_text(
+                json.dumps({"source_url": "https://uukanshu.cc/book/26855/"}),
+                encoding="utf-8",
+            )
 
             metadata = app.novel_metadata("Book One", output)
 
@@ -79,6 +83,7 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(metadata["name"], "Book One")
             self.assertEqual(metadata["translated_name"], "Book One")
             self.assertEqual(metadata["cover_url"], "/api/cover?novel=Book%20One")
+            self.assertEqual(metadata["source_url"], "https://uukanshu.cc/book/26855/")
 
     def test_list_novels_queues_new_source_language_name_without_renaming_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -431,7 +436,10 @@ class TranslatorAppTests(unittest.TestCase):
         server_source = (root / "novel_translator" / "server.py").read_text(encoding="utf-8")
 
         self.assertIn("Source URL", app_source)
+        self.assertIn("Use Link", app_source)
+        self.assertIn("scrapeState", app_source)
         self.assertIn("api.scrape", app_source)
+        self.assertIn("api.scrapeState", app_source)
         self.assertIn("/api/scrape", api_source)
         self.assertIn("handle_scrape", server_source)
         self.assertIn("download_69shuba_range", server_source)

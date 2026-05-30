@@ -19,6 +19,7 @@ export type NovelMetadata = {
   name: string;
   translated_name: string;
   cover_url: string | null;
+  source_url: string | null;
 };
 
 export type ChapterDetail = {
@@ -44,9 +45,21 @@ export type TranslationResult = {
 
 export type ScrapeResult = {
   novel: string;
+  source_url: string;
   output_dir: string;
   chapter_count: number;
   files: string[];
+};
+
+export type ScrapeState = {
+  running: boolean;
+  stage: "idle" | "queued" | "fetching" | "downloading" | "done" | "failed";
+  current: number;
+  total: number;
+  message: string;
+  novel: string;
+  result: ScrapeResult | null;
+  error: string;
 };
 
 export type UsageBucket = {

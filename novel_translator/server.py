@@ -1,6 +1,7 @@
 import argparse
 import json
 import mimetypes
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +19,19 @@ from .epub import build_translated_epub
 from .glossary import load_glossary, save_glossary
 from .translation import populate_glossary_for_chapter, translate_chapter
 from .usage import current_usage, reset_usage
+
+
+scrape_lock = threading.Lock()
+scrape_state: dict[str, Any] = {
+    "running": False,
+    "stage": "idle",
+    "current": 0,
+    "total": 0,
+    "message": "",
+    "novel": "",
+    "result": None,
+    "error": "",
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -69,8 +83,8 @@ class Handler(BaseHTTPRequestHandler):
                 query = urllib.parse.parse_qs(parsed.query)
                 self.json(list_chapters(first(query, "novel")))
                 return
-            if method == "POST" and parsed.path == "/api/scrape":
-                self.handle_scrape()
+            if parsed.path == "/api/scrape":
+                self.handle_scrape(method)
                 return
             if method == "GET" and parsed.path == "/api/chapter":
                 query = urllib.parse.parse_qs(parsed.query)
@@ -172,7 +186,14 @@ class Handler(BaseHTTPRequestHandler):
             raise AppError("items must be a list.")
         self.json(start_bulk_translation(novel, items))
 
-    def handle_scrape(self) -> None:
+    def handle_scrape(self, method: str) -> None:
+        if method == "GET":
+            with scrape_lock:
+                self.json(dict(scrape_state))
+            return
+        if method != "POST":
+            raise AppError("Method not allowed.", 405)
+
         data = self.body_json()
         url = str(data.get("url", "")).strip()
         try:
@@ -186,21 +207,66 @@ class Handler(BaseHTTPRequestHandler):
             raise AppError("Invalid chapter range: start must be >= 1 and end must be >= start.")
 
         host = urllib.parse.urlparse(url).netloc.lower()
-        try:
-            if host in {"69shuba.com", "www.69shuba.com"}:
-                result = download_69shuba_range(url, start, end, settings.OUTPUT_ROOT)
-            elif host in {"uukanshu.cc", "www.uukanshu.cc"}:
-                result = download_uukanshu_range(url, start, end, settings.OUTPUT_ROOT)
-            else:
-                raise AppError("Supported scraper URLs are 69shuba.com and uukanshu.cc.")
-        except AppError:
-            raise
-        except ValueError as exc:
-            raise AppError(str(exc)) from exc
-        except Exception as exc:
-            raise AppError(f"Scrape failed: {exc}", 502) from exc
+        if host in {"69shuba.com", "www.69shuba.com"}:
+            downloader = download_69shuba_range
+        elif host in {"uukanshu.cc", "www.uukanshu.cc"}:
+            downloader = download_uukanshu_range
+        else:
+            raise AppError("Supported scraper URLs are 69shuba.com and uukanshu.cc.")
 
-        self.json(result)
+        with scrape_lock:
+            if scrape_state["running"]:
+                raise AppError("A scrape is already running.", 409)
+            scrape_state.update(
+                {
+                    "running": True,
+                    "stage": "queued",
+                    "current": 0,
+                    "total": max(0, end - start + 1),
+                    "message": "Starting scrape...",
+                    "novel": "",
+                    "result": None,
+                    "error": "",
+                }
+            )
+
+        def update_progress(progress: dict[str, object]) -> None:
+            with scrape_lock:
+                scrape_state.update(progress)
+                scrape_state["running"] = True
+                scrape_state["error"] = ""
+
+        def worker() -> None:
+            try:
+                result = downloader(url, start, end, settings.OUTPUT_ROOT, update_progress)
+                with scrape_lock:
+                    scrape_state.update(
+                        {
+                            "running": False,
+                            "stage": "done",
+                            "current": result["chapter_count"],
+                            "total": result["chapter_count"],
+                            "message": f"Downloaded {result['chapter_count']} chapters for {result['novel']}.",
+                            "novel": result["novel"],
+                            "result": result,
+                            "error": "",
+                        }
+                    )
+            except Exception as exc:
+                with scrape_lock:
+                    scrape_state.update(
+                        {
+                            "running": False,
+                            "stage": "failed",
+                            "message": f"Scrape failed: {exc}",
+                            "result": None,
+                            "error": str(exc),
+                        }
+                    )
+
+        threading.Thread(target=worker, daemon=True).start()
+        with scrape_lock:
+            self.json(dict(scrape_state))
 
     def body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
