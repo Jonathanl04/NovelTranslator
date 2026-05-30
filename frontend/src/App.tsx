@@ -8,6 +8,7 @@ import {
   Download,
   Eraser,
   Library,
+  Search,
   Moon,
   Plus,
   Save,
@@ -55,8 +56,9 @@ const MODELS: Model[] = ["deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.5", "m
 const PRONOUNS = ["__none__", "male", "female", "unknown", "it"];
 const SELECTED_CHAPTER_STORAGE_KEY = "novel-translator:selected-chapter";
 
-type Page = "workspace" | "glossary";
+type Page = "library" | "workspace" | "glossary";
 type ReaderTab = "raw" | "translated";
+const BOOKS_PER_PAGE = 12;
 
 const emptyConfig: Config = {
   has_api_key: false,
@@ -85,7 +87,7 @@ const emptyUsage: Usage = {
 };
 
 export function App() {
-  const [page, setPage] = useState<Page>("workspace");
+  const [page, setPage] = useState<Page>("library");
   const [config, setConfig] = useState<Config>(emptyConfig);
   const [apiKey, setApiKey] = useState("");
   const [novels, setNovels] = useState<string[]>([]);
@@ -98,6 +100,8 @@ export function App() {
   const [translated, setTranslated] = useState("");
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [chapterSearch, setChapterSearch] = useState("");
+  const [bookSearch, setBookSearch] = useState("");
+  const [bookPage, setBookPage] = useState(1);
   const [manualBusy, setManualBusy] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [status, setStatus] = useState("");
@@ -145,6 +149,18 @@ export function App() {
     }),
     [bulkItems]
   );
+  const filteredNovels = useMemo(() => {
+    const query = bookSearch.trim().toLocaleLowerCase();
+    if (!query) return novels;
+    return novels.filter((name) =>
+      `${name} ${novelMetadataByName[name]?.translated_name || ""}`.toLocaleLowerCase().includes(query)
+    );
+  }, [bookSearch, novelMetadataByName, novels]);
+  const bookPageCount = Math.max(1, Math.ceil(filteredNovels.length / BOOKS_PER_PAGE));
+  const paginatedNovels = useMemo(() => {
+    const start = (bookPage - 1) * BOOKS_PER_PAGE;
+    return filteredNovels.slice(start, start + BOOKS_PER_PAGE);
+  }, [bookPage, filteredNovels]);
 
   const showStatus = useCallback((message: string, isError = false) => {
     setStatus(message);
@@ -237,6 +253,14 @@ export function App() {
     [loadBulkState, loadGlossary, loadNovelMetadata, selectChapter]
   );
 
+  const chooseNovel = useCallback(
+    async (nextNovel: string) => {
+      await loadChapters(nextNovel);
+      setPage("workspace");
+    },
+    [loadChapters]
+  );
+
   useEffect(() => {
     let active = true;
 
@@ -261,9 +285,6 @@ export function App() {
             Object.fromEntries(entries.filter((entry): entry is readonly [string, NovelMetadata] => entry !== null))
           );
         });
-        if (nextNovels[0]) {
-          await loadChapters(nextNovels[0]);
-        }
       } catch (caught) {
         showStatus(errorMessage(caught), true);
       }
@@ -273,7 +294,15 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [loadChapters, showStatus]);
+  }, [showStatus]);
+
+  useEffect(() => {
+    setBookPage(1);
+  }, [bookSearch]);
+
+  useEffect(() => {
+    setBookPage((current) => Math.min(current, bookPageCount));
+  }, [bookPageCount]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -548,8 +577,12 @@ export function App() {
           <h1 className="text-base font-semibold">Novel Translator</h1>
         </div>
         <nav className="flex items-center justify-center gap-1 rounded-lg bg-muted p-1">
-          <Button type="button" size="sm" variant={page === "workspace" ? "secondary" : "ghost"} onClick={() => setPage("workspace")}>
+          <Button type="button" size="sm" variant={page === "library" ? "secondary" : "ghost"} onClick={() => setPage("library")}>
             <Library />
+            Books
+          </Button>
+          <Button type="button" size="sm" variant={page === "workspace" ? "secondary" : "ghost"} onClick={() => setPage("workspace")}>
+            <WandSparkles />
             Translate
           </Button>
           <Button type="button" size="sm" variant={page === "glossary" ? "secondary" : "ghost"} onClick={() => setPage("glossary")}>
@@ -573,26 +606,29 @@ export function App() {
         </Button>
       </header>
 
-      {page === "workspace" ? (
+      {page === "library" ? (
+        <BookLibraryPage
+          novels={paginatedNovels}
+          allCount={novels.length}
+          filteredCount={filteredNovels.length}
+          metadataByName={novelMetadataByName}
+          selectedNovel={novel}
+          query={bookSearch}
+          page={bookPage}
+          pageCount={bookPageCount}
+          onQueryChange={setBookSearch}
+          onPageChange={setBookPage}
+          onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
+        />
+      ) : page === "workspace" ? (
         <main className="grid min-h-[calc(100vh-3.5rem)] grid-cols-[320px_minmax(0,1fr)] max-[980px]:grid-cols-1">
           <aside className="sticky top-14 grid h-[calc(100vh-3.5rem)] min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden border-r bg-muted/20 p-4 max-[980px]:static max-[980px]:h-auto max-[980px]:overflow-visible max-[980px]:border-r-0 max-[980px]:border-b">
             <section className="grid gap-3">
               <NovelCover novel={novel} metadata={novelMetadata} />
-              <div className="grid gap-1.5">
-                <Label>Novel</Label>
-                <Select value={novel} onValueChange={(value) => loadChapters(value).catch((caught) => showStatus(errorMessage(caught), true))}>
-                  <SelectTrigger className="w-full bg-background">
-                    <SelectValue placeholder="No novels found" />
-                  </SelectTrigger>
-                  <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]">
-                    {novels.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {novelDisplayName(name)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Button type="button" variant="outline" onClick={() => setPage("library")}>
+                <Library />
+                Choose Book
+              </Button>
               <div className="grid grid-cols-3 gap-2 rounded-lg border bg-background p-3 text-center text-xs">
                 <Metric label="Chapters" value={chapters.length} />
                 <Metric label="Translated" value={chapters.length - untranslatedCount} />
@@ -731,6 +767,143 @@ export function App() {
         />
       )}
     </div>
+  );
+}
+
+function BookLibraryPage({
+  novels,
+  allCount,
+  filteredCount,
+  metadataByName,
+  selectedNovel,
+  query,
+  page,
+  pageCount,
+  onQueryChange,
+  onPageChange,
+  onSelect,
+}: {
+  novels: string[];
+  allCount: number;
+  filteredCount: number;
+  metadataByName: Record<string, NovelMetadata>;
+  selectedNovel: string;
+  query: string;
+  page: number;
+  pageCount: number;
+  onQueryChange: (value: string) => void;
+  onPageChange: (page: number) => void;
+  onSelect: (novel: string) => void;
+}) {
+  return (
+    <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20">
+      <section className="mx-auto grid w-full max-w-7xl gap-4 p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="grid gap-1">
+            <h2 className="text-xl font-semibold">Books</h2>
+            <div className="text-sm text-muted-foreground">
+              {formatInteger(filteredCount)} of {formatInteger(allCount)} books
+            </div>
+          </div>
+          <div className="relative w-full max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              value={query}
+              placeholder="Search books..."
+              className="bg-background pl-9"
+              onChange={(event) => onQueryChange(event.target.value)}
+            />
+          </div>
+        </div>
+
+        {novels.length ? (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+            {novels.map((name) => (
+              <BookCard
+                key={name}
+                name={name}
+                metadata={metadataByName[name]}
+                selected={name === selectedNovel}
+                onSelect={() => onSelect(name)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid min-h-72 place-items-center rounded-lg border border-dashed bg-background p-6 text-center text-sm text-muted-foreground">
+            No books match your search.
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
+          <div className="text-sm text-muted-foreground">
+            Page {formatInteger(page)} of {formatInteger(pageCount)}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+            >
+              <ChevronLeft />
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={page >= pageCount}
+              onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+            >
+              Next
+              <ChevronRight />
+            </Button>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function BookCard({
+  name,
+  metadata,
+  selected,
+  onSelect,
+}: {
+  name: string;
+  metadata?: NovelMetadata;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const displayName = metadata?.translated_name || name;
+  return (
+    <button
+      type="button"
+      className={cn(
+        "group grid min-w-0 gap-2 rounded-lg border bg-background p-2 text-left transition-colors hover:border-teal-700 hover:bg-teal-50/40 dark:hover:border-teal-400 dark:hover:bg-teal-950/20",
+        selected && "border-teal-700 bg-teal-50/70 dark:border-teal-400 dark:bg-teal-950/40"
+      )}
+      onClick={onSelect}
+    >
+      <div className="aspect-[7/9] overflow-hidden rounded-md border bg-muted">
+        {metadata?.cover_url ? (
+          <img src={metadata.cover_url} alt={`${displayName} cover`} className="h-full w-full object-cover" />
+        ) : (
+          <div className="grid h-full place-items-center text-muted-foreground">
+            <BookOpen className="size-10" />
+          </div>
+        )}
+      </div>
+      <div className="grid min-w-0 gap-1">
+        <div className="line-clamp-2 min-h-10 [overflow-wrap:anywhere] text-sm font-semibold leading-tight">
+          {displayName}
+        </div>
+        {displayName !== name && <div className="truncate text-xs text-muted-foreground">{name}</div>}
+      </div>
+    </button>
   );
 }
 
