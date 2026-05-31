@@ -390,10 +390,9 @@ export function App() {
       setNovelMetadataByName((current) => ({ ...current, [result.novel]: metadata }));
       setBookSearch("");
       showStatus(`Downloaded ${result.chapter_count} ${result.chapter_count === 1 ? "chapter" : "chapters"} for ${result.novel}.`);
-      await chooseNovel(result.novel);
     }
     refreshAfterScrape().catch((caught) => showStatus(errorMessage(caught), true));
-  }, [chooseNovel, loadNovelMetadata, scrapeState, showStatus]);
+  }, [loadNovelMetadata, scrapeState, showStatus]);
 
   useEffect(() => {
     setBookPage(1);
@@ -680,15 +679,33 @@ export function App() {
           <h1 className="text-base font-semibold">Novel Translator</h1>
         </div>
         <nav className="flex items-center justify-center gap-1 rounded-lg bg-muted p-1">
-          <Button type="button" size="sm" variant={page === "library" ? "secondary" : "ghost"} onClick={() => setPage("library")}>
+          <Button
+            type="button"
+            size="sm"
+            variant={page === "library" ? "secondary" : "ghost"}
+            className={cn("relative", page === "library" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
+            onClick={() => setPage("library")}
+          >
             <Library />
             Books
           </Button>
-          <Button type="button" size="sm" variant={page === "workspace" ? "secondary" : "ghost"} onClick={() => setPage("workspace")}>
+          <Button
+            type="button"
+            size="sm"
+            variant={page === "workspace" ? "secondary" : "ghost"}
+            className={cn("relative", page === "workspace" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
+            onClick={() => setPage("workspace")}
+          >
             <WandSparkles />
             Translate
           </Button>
-          <Button type="button" size="sm" variant={page === "glossary" ? "secondary" : "ghost"} onClick={() => setPage("glossary")}>
+          <Button
+            type="button"
+            size="sm"
+            variant={page === "glossary" ? "secondary" : "ghost"}
+            className={cn("relative", page === "glossary" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
+            onClick={() => setPage("glossary")}
+          >
             <ClipboardList />
             Glossary
           </Button>
