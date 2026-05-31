@@ -11,7 +11,7 @@ from scraper.download_69shuba import download_range as download_69shuba_range
 from scraper.download_uukanshu import download_range as download_uukanshu_range
 
 from . import settings
-from .bulk_translate import get_bulk_state, start_bulk_translation
+from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
 from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
 from .errors import AppError
@@ -122,6 +122,10 @@ class Handler(BaseHTTPRequestHandler):
                     method,
                     first(query, "novel") if method == "GET" else "",
                 )
+                return
+            if method == "POST" and parsed.path == "/api/bulk-translate/abort":
+                data = self.body_json()
+                self.json(abort_bulk_translation(str(data.get("novel", ""))))
                 return
             raise AppError("Not found.", 404)
         except AppError as exc:

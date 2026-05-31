@@ -4,6 +4,7 @@ import {
 } from "react";
 import {
   BookOpen,
+  Ban,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -43,6 +44,7 @@ export function TranslatePage({
   translationModel,
   canExport,
   busy,
+  bulkRunning,
   chapters,
   visibleChapters,
   search,
@@ -69,6 +71,7 @@ export function TranslatePage({
   onSelectFromCurrent,
   onClear,
   onTranslate,
+  onAbortBulk,
   onReaderTabChange,
   onPrevious,
   onNext,
@@ -82,6 +85,7 @@ export function TranslatePage({
   translationModel: Model;
   canExport: boolean;
   busy: boolean;
+  bulkRunning: boolean;
   chapters: Chapter[];
   visibleChapters: Chapter[];
   search: string;
@@ -89,7 +93,7 @@ export function TranslatePage({
   selection: Set<string>;
   itemsByFile: Map<string, BulkItem>;
   itemsTotal: number;
-  counts: { done: number; failed: number; pending: number; translating: number };
+  counts: { done: number; failed: number; aborted: number; pending: number; translating: number };
   untranslatedCount: number;
   selectedChapter?: Chapter;
   selectedChapterIndex: number;
@@ -108,6 +112,7 @@ export function TranslatePage({
   onSelectFromCurrent: () => void;
   onClear: () => void;
   onTranslate: (mode: "full" | "only") => void;
+  onAbortBulk: () => void;
   onReaderTabChange: (tab: ReaderTab) => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -132,6 +137,7 @@ export function TranslatePage({
 
         <ChapterPanel
           busy={busy}
+          bulkRunning={bulkRunning}
           chapters={chapters}
           visibleChapters={visibleChapters}
           search={search}
@@ -148,6 +154,7 @@ export function TranslatePage({
           onSelectFromCurrent={onSelectFromCurrent}
           onClear={onClear}
           onTranslate={onTranslate}
+          onAbortBulk={onAbortBulk}
         />
 
         <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] gap-4">
@@ -255,6 +262,7 @@ function WorkspaceHeader({
 
 function ChapterPanel({
   busy,
+  bulkRunning,
   chapters,
   visibleChapters,
   search,
@@ -271,8 +279,10 @@ function ChapterPanel({
   onSelectFromCurrent,
   onClear,
   onTranslate,
+  onAbortBulk,
 }: {
   busy: boolean;
+  bulkRunning: boolean;
   chapters: Chapter[];
   visibleChapters: Chapter[];
   search: string;
@@ -281,7 +291,7 @@ function ChapterPanel({
   selection: Set<string>;
   itemsByFile: Map<string, BulkItem>;
   itemsTotal: number;
-  counts: { done: number; failed: number; pending: number; translating: number };
+  counts: { done: number; failed: number; aborted: number; pending: number; translating: number };
   untranslatedCount: number;
   onOpen: (filename: string) => void;
   onToggle: (filename: string, checked: boolean) => void;
@@ -289,6 +299,7 @@ function ChapterPanel({
   onSelectFromCurrent: () => void;
   onClear: () => void;
   onTranslate: (mode: "full" | "only") => void;
+  onAbortBulk: () => void;
 }) {
   const selectedCount = selection.size;
   const summary =
@@ -298,6 +309,7 @@ function ChapterPanel({
           counts.translating ? `${counts.translating} active` : "",
           counts.pending ? `${counts.pending} pending` : "",
           counts.failed ? `${counts.failed} failed` : "",
+          counts.aborted ? `${counts.aborted} aborted` : "",
         ]
           .filter(Boolean)
           .join(" · ")
@@ -339,6 +351,18 @@ function ChapterPanel({
             <WandSparkles />
             Translate + Glossary
           </Button>
+          {bulkRunning && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="min-w-0 whitespace-normal max-[700px]:col-span-2"
+              onClick={onAbortBulk}
+            >
+              <Ban />
+              Abort
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 max-[700px]:grid">
@@ -567,6 +591,9 @@ function BulkBadge({ status }: { status: BulkItem["status"] }) {
   }
   if (status === "failed") {
     return <Badge variant="destructive">failed</Badge>;
+  }
+  if (status === "aborted") {
+    return <Badge variant="secondary">aborted</Badge>;
   }
   return <Badge variant="outline">pending</Badge>;
 }

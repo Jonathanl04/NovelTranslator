@@ -1,7 +1,7 @@
 import json
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import settings
 from .chapters import safe_segment
@@ -43,6 +43,7 @@ def ensure_translated_novel_name(
     novel: str,
     output_root: Path | None = None,
     call_api: Any = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> str:
     safe_novel = safe_segment(novel, "novel")
     existing = load_novel_display_name(safe_novel, output_root)
@@ -54,12 +55,16 @@ def ensure_translated_novel_name(
         return safe_novel
 
     call_api = call_api or call_deepseek
+    if should_abort and should_abort():
+        raise AppError("Bulk translation aborted.", 409)
     response = call_api(
         config["api_key"],
         config["translation_model"],
         build_novel_name_messages(safe_novel),
     )
     translated_name = parse_novel_name_response(response)
+    if should_abort and should_abort():
+        raise AppError("Bulk translation aborted.", 409)
     with state_lock:
         metadata = read_json(novel_metadata_path(safe_novel, output_root), {})
         if not isinstance(metadata, dict):

@@ -1,6 +1,6 @@
 import json
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from .chapters import source_path, split_chapter, write_translation
 from .config import load_config
@@ -367,6 +367,7 @@ def populate_glossary_for_chapter(
     novel: str,
     filename: str,
     call_api: Any = call_deepseek,
+    should_abort: Callable[[], bool] | None = None,
 ) -> list[dict[str, str]]:
     config = load_config()
     if not config["api_key"]:
@@ -378,12 +379,16 @@ def populate_glossary_for_chapter(
     with state_lock:
         glossary = load_glossary(novel)
     messages = build_glossary_messages(title, body, glossary)
+    if should_abort and should_abort():
+        raise AppError("Bulk translation aborted.", 409)
     api_response = call_api(config["api_key"], config["glossary_model"], messages)
     try:
         updates = parse_glossary_response(api_response)
     except AppError as exc:
         log_parse_failure("glossary_parse_error", config["glossary_model"], messages, api_response, exc)
         raise
+    if should_abort and should_abort():
+        raise AppError("Bulk translation aborted.", 409)
 
     with state_lock:
         merged = merge_glossary_entries(load_glossary(novel), updates)
@@ -396,6 +401,7 @@ def translate_chapter(
     filename: str,
     call_api: Any = call_deepseek,
     populate_glossary: bool = True,
+    should_abort: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
     if not config["api_key"]:
@@ -404,11 +410,17 @@ def translate_chapter(
     original = source_path(novel, filename).read_text(encoding="utf-8")
     title, body = split_chapter(original)
 
-    glossary = populate_glossary_for_chapter(novel, filename, call_api) if populate_glossary else load_glossary(novel)
+    glossary = (
+        populate_glossary_for_chapter(novel, filename, call_api, should_abort=should_abort)
+        if populate_glossary
+        else load_glossary(novel)
+    )
     messages = build_messages(title, body, glossary)
     retry_messages = messages
     try:
         for retry_index in range(TRANSLATION_JSON_RETRIES + 1):
+            if should_abort and should_abort():
+                raise AppError("Bulk translation aborted.", 409)
             try:
                 api_response = call_api(
                     config["api_key"], config["translation_model"], retry_messages
@@ -446,6 +458,8 @@ def translate_chapter(
                 config["translation_model"],
                 build_fragment_repair_messages(retry_messages, draft_json),
             )
+            if should_abort and should_abort():
+                raise AppError("Bulk translation aborted.", 409)
             compact_json = apply_fragment_replacements(
                 draft_json, parse_fragment_replacements(fragment_response)
             )
@@ -458,6 +472,8 @@ def translate_chapter(
                 response=locals().get("fragment_response"),
             )
             repair_messages = build_repair_messages(title, body, draft_json)
+            if should_abort and should_abort():
+                raise AppError("Bulk translation aborted.", 409)
             repair_response = call_api(
                 config["api_key"], config["translation_model"], repair_messages
             )
@@ -468,6 +484,8 @@ def translate_chapter(
                 raise
 
     with state_lock:
+        if should_abort and should_abort():
+            raise AppError("Bulk translation aborted.", 409)
         current_glossary = load_glossary(novel)
         output = write_translation(
             novel, filename, parsed["translated_title"], parsed["translated_body"]

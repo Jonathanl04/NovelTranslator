@@ -133,6 +133,7 @@ export function App() {
     () => ({
       done: bulkItems.filter((item) => item.status === "done").length,
       failed: bulkItems.filter((item) => item.status === "failed").length,
+      aborted: bulkItems.filter((item) => item.status === "aborted").length,
       pending: bulkItems.filter((item) => item.status === "pending").length,
       translating: bulkItems.filter((item) => item.status === "translating").length,
     }),
@@ -221,7 +222,9 @@ export function App() {
       )
     );
     previousBulkState.current = state;
-    if (state.running) {
+    if (state.aborted) {
+      showStatus("Bulk translation aborted.");
+    } else if (state.running) {
       showStatus(describeBulkProgress(state));
     }
   }, [showStatus]);
@@ -467,9 +470,11 @@ export function App() {
 
           if (queueFinished) {
             showStatus(
-              state.items.some((item) => item.status === "failed")
-                ? "Bulk translation stopped after a failure."
-                : "Bulk translation complete.",
+              state.aborted
+                ? "Bulk translation aborted."
+                : state.items.some((item) => item.status === "failed")
+                  ? "Bulk translation stopped after a failure."
+                  : "Bulk translation complete.",
               state.items.some((item) => item.status === "failed")
             );
           }
@@ -571,6 +576,39 @@ export function App() {
       showStatus(errorMessage(caught), true);
     } finally {
       setManualBusy(false);
+    }
+  }
+
+  async function abortBulkTranslation() {
+    if (!novel || !bulkRunning) return;
+    try {
+      const state = await api.abortBulkTranslation(novel);
+      previousBulkState.current = state;
+      setBulkItems(state.items);
+      setBulkRunning(state.running);
+      setBulkSelection(
+        new Set(
+          state.items
+            .filter((item) => item.status === "pending" || item.status === "translating")
+            .filter((item) => item.mode !== "name")
+            .map((item) => item.filename)
+        )
+      );
+      showStatus("Bulk translation aborted.");
+
+      const [nextChapters, nextUsage] = await Promise.all([api.chapters(novel), api.usage()]);
+      setChapters(nextChapters);
+      setUsage(nextUsage);
+      if (state.items.some((item) => item.status === "done" || item.status === "failed" || item.status === "aborted")) {
+        setGlossary(await api.glossary(novel));
+      }
+      if (selectedFile && state.items.some((item) => item.filename === selectedFile && item.status === "done")) {
+        const chapter = await api.chapter(novel, selectedFile);
+        setSource(chapter.source);
+        setTranslated(chapter.translated);
+      }
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
     }
   }
 
@@ -758,6 +796,7 @@ export function App() {
           translationModel={config.translation_model}
           canExport={Boolean(novel) && chapters.length > 0 && chapters.length !== untranslatedCount}
           busy={busy}
+          bulkRunning={bulkRunning}
           chapters={chapters}
           visibleChapters={visibleChapters}
           search={chapterSearch}
@@ -784,6 +823,7 @@ export function App() {
           onSelectFromCurrent={selectFromCurrent}
           onClear={() => setBulkSelection(new Set())}
           onTranslate={runTranslate}
+          onAbortBulk={abortBulkTranslation}
           onReaderTabChange={setReaderTab}
           onPrevious={() => goToChapter(previousChapter?.filename)}
           onNext={() => goToChapter(nextChapter?.filename)}
@@ -856,6 +896,9 @@ function preferredChapter(novel: string, chapters: Chapter[]) {
 function describeBulkProgress(state: BulkTranslationState) {
   const total = state.items.length;
   const done = state.items.filter((item) => item.status === "done").length;
+  if (state.aborted) {
+    return "Bulk translation aborted.";
+  }
   const failed = state.items.find((item) => item.status === "failed");
   const active = state.items.find((item) => item.status === "translating");
   const pending = state.items.find((item) => item.status === "pending");
