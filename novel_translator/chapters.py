@@ -48,6 +48,21 @@ def cover_path(novel: str, output_root: Path | None = None) -> Path | None:
     return None
 
 
+def _latest_mtime(*paths: Path) -> float:
+    latest = 0.0
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            latest = max(latest, path.stat().st_mtime)
+            if path.is_dir():
+                for child in path.iterdir():
+                    latest = max(latest, child.stat().st_mtime)
+        except OSError:
+            continue
+    return latest
+
+
 def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any]:
     output_root = output_root or settings.OUTPUT_ROOT
     safe_novel = safe_segment(novel, "novel")
@@ -64,11 +79,16 @@ def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any
     path = cover_path(safe_novel, output_root)
     metadata = read_json(output_root / safe_novel / "metadata.json", {})
     source_url = str(metadata.get("source_url", "")).strip() if isinstance(metadata, dict) else ""
+    updated_at = _latest_mtime(
+        output_root / safe_novel / "source",
+        settings.TRANSLATED_ROOT / safe_novel / "translated",
+    )
     return {
         "name": safe_novel,
         "translated_name": translated_name,
         "cover_url": f"/api/cover?novel={quote(safe_novel)}" if path else None,
         "source_url": source_url or None,
+        "updated_at": updated_at,
     }
 
 

@@ -5,6 +5,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  ArrowDownAZ,
+  Clock,
   Download,
   Eraser,
   Library,
@@ -115,6 +117,7 @@ export function App() {
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [chapterSearch, setChapterSearch] = useState("");
   const [bookSearch, setBookSearch] = useState("");
+  const [bookSort, setBookSort] = useState<"name" | "recent">("name");
   const [bookPage, setBookPage] = useState(1);
   const [scrapeUrl, setScrapeUrl] = useState("");
   const [scrapeStart, setScrapeStart] = useState("1");
@@ -171,11 +174,18 @@ export function App() {
   );
   const filteredNovels = useMemo(() => {
     const query = bookSearch.trim().toLocaleLowerCase();
-    if (!query) return novels;
-    return novels.filter((name) =>
-      `${name} ${novelMetadataByName[name]?.translated_name || ""}`.toLocaleLowerCase().includes(query)
-    );
-  }, [bookSearch, novelMetadataByName, novels]);
+    const matched = query
+      ? novels.filter((name) =>
+          `${name} ${novelMetadataByName[name]?.translated_name || ""}`.toLocaleLowerCase().includes(query)
+        )
+      : novels;
+    if (bookSort === "recent") {
+      return [...matched].sort(
+        (a, b) => (novelMetadataByName[b]?.updated_at || 0) - (novelMetadataByName[a]?.updated_at || 0)
+      );
+    }
+    return matched;
+  }, [bookSearch, bookSort, novelMetadataByName, novels]);
   const bookPageCount = Math.max(1, Math.ceil(filteredNovels.length / BOOKS_PER_PAGE));
   const paginatedNovels = useMemo(() => {
     const start = (bookPage - 1) * BOOKS_PER_PAGE;
@@ -396,7 +406,7 @@ export function App() {
 
   useEffect(() => {
     setBookPage(1);
-  }, [bookSearch]);
+  }, [bookSearch, bookSort]);
 
   useEffect(() => {
     setBookPage((current) => Math.min(current, bookPageCount));
@@ -734,6 +744,7 @@ export function App() {
           metadataByName={novelMetadataByName}
           selectedNovel={novel}
           query={bookSearch}
+          sort={bookSort}
           page={bookPage}
           pageCount={bookPageCount}
           scrapeUrl={scrapeUrl}
@@ -741,6 +752,7 @@ export function App() {
           scrapeEnd={scrapeEnd}
           scrapeState={scrapeState}
           onQueryChange={setBookSearch}
+          onSortChange={setBookSort}
           onPageChange={setBookPage}
           onScrapeUrlChange={setScrapeUrl}
           onScrapeStartChange={setScrapeStart}
@@ -906,6 +918,7 @@ function BookLibraryPage({
   metadataByName,
   selectedNovel,
   query,
+  sort,
   page,
   pageCount,
   scrapeUrl,
@@ -913,6 +926,7 @@ function BookLibraryPage({
   scrapeEnd,
   scrapeState,
   onQueryChange,
+  onSortChange,
   onPageChange,
   onScrapeUrlChange,
   onScrapeStartChange,
@@ -927,6 +941,7 @@ function BookLibraryPage({
   metadataByName: Record<string, NovelMetadata>;
   selectedNovel: string;
   query: string;
+  sort: "name" | "recent";
   page: number;
   pageCount: number;
   scrapeUrl: string;
@@ -934,6 +949,7 @@ function BookLibraryPage({
   scrapeEnd: string;
   scrapeState: ScrapeState;
   onQueryChange: (value: string) => void;
+  onSortChange: (value: "name" | "recent") => void;
   onPageChange: (page: number) => void;
   onScrapeUrlChange: (value: string) => void;
   onScrapeStartChange: (value: string) => void;
@@ -1013,15 +1029,28 @@ function BookLibraryPage({
               {formatInteger(filteredCount)} of {formatInteger(allCount)} books
             </div>
           </div>
-          <div className="relative w-full max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              value={query}
-              placeholder="Search books..."
-              className="bg-background pl-9"
-              onChange={(event) => onQueryChange(event.target.value)}
-            />
+          <div className="flex w-full max-w-md items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => onSortChange(sort === "recent" ? "name" : "recent")}
+              title={sort === "recent" ? "Sorting by most recently updated" : "Sorting by name"}
+            >
+              {sort === "recent" ? <Clock /> : <ArrowDownAZ />}
+              {sort === "recent" ? "Recent" : "Name"}
+            </Button>
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={query}
+                placeholder="Search books..."
+                className="bg-background pl-9"
+                onChange={(event) => onQueryChange(event.target.value)}
+              />
+            </div>
           </div>
         </div>
 

@@ -20,6 +20,7 @@ export type NovelMetadata = {
   translated_name: string;
   cover_url: string | null;
   source_url: string | null;
+  updated_at: number;
 };
 
 export type ChapterDetail = {
