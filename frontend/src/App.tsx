@@ -83,7 +83,7 @@ export function App() {
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [chapterSearch, setChapterSearch] = useState("");
   const [bookSearch, setBookSearch] = useState("");
-  const [bookSort, setBookSort] = useState<"name" | "recent">("name");
+  const [bookSort, setBookSort] = useState<"name" | "recent">("recent");
   const [bookPage, setBookPage] = useState(1);
   const [scrapeUrl, setScrapeUrl] = useState("");
   const [scrapeStart, setScrapeStart] = useState("1");

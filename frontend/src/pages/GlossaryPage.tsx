@@ -101,16 +101,16 @@ export function GlossaryPage({
   }, [glossaryPage, totalGlossaryPages]);
 
   return (
-    <main className="grid min-h-[calc(100vh-3.5rem)] grid-cols-[320px_minmax(0,1fr)] max-[980px]:grid-cols-1">
-      <aside className="grid content-start gap-4 border-r bg-muted/20 p-4 max-[980px]:border-r-0 max-[980px]:border-b">
-        <section className="grid gap-3 rounded-lg border bg-background p-3">
+    <main className="grid min-h-[calc(100vh-3.5rem)] min-w-0 grid-cols-[320px_minmax(0,1fr)] overflow-x-hidden max-[980px]:grid-cols-1">
+      <aside className="grid min-w-0 content-start gap-4 border-r bg-muted/20 p-3 max-[980px]:border-r-0 max-[980px]:border-b sm:p-4">
+        <section className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-background p-3">
           <div className="flex items-center gap-2">
             <Settings className="size-4 text-teal-700" />
             <h2 className="text-sm font-semibold">Settings</h2>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="api-key">OpenRouter API key</Label>
-            <div className="grid grid-cols-[1fr_auto] gap-2">
+            <div className="grid min-w-0 grid-cols-[1fr_auto] gap-2 max-[420px]:grid-cols-1">
               <Input
                 id="api-key"
                 type="password"
@@ -141,7 +141,7 @@ export function GlossaryPage({
           </div>
         </section>
 
-        <section className="grid gap-2 rounded-lg border bg-background p-3 text-sm">
+        <section className="grid min-w-0 gap-2 overflow-hidden rounded-lg border bg-background p-3 text-sm">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold">Token usage</h2>
             <Button type="button" variant="outline" size="sm" onClick={onResetUsage}>
@@ -155,7 +155,7 @@ export function GlossaryPage({
         </section>
       </aside>
 
-      <section className="grid min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 p-4">
+      <section className="grid min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-4 p-3 sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Glossary</h2>
@@ -163,7 +163,7 @@ export function GlossaryPage({
               {novel || "No novel selected"} · {glossary.length} {glossary.length === 1 ? "entry" : "entries"}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex min-w-0 flex-wrap gap-2 max-[520px]:grid max-[520px]:w-full max-[520px]:grid-cols-2">
             <Button
               type="button"
               variant="outline"
@@ -184,7 +184,7 @@ export function GlossaryPage({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="relative min-w-64 flex-1">
+          <div className="relative min-w-0 flex-1 max-[520px]:basis-full sm:min-w-64">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={glossarySearch}
@@ -201,7 +201,7 @@ export function GlossaryPage({
           </div>
         </div>
 
-        <ScrollArea className="min-h-0 rounded-lg border bg-background">
+        <ScrollArea className="min-h-0 min-w-0 overflow-hidden rounded-lg border bg-background max-[760px]:hidden">
           <Table>
             <TableHeader>
               <TableRow>
@@ -251,6 +251,71 @@ export function GlossaryPage({
             </TableBody>
           </Table>
         </ScrollArea>
+
+        <div className="grid min-w-0 gap-3 min-[761px]:hidden">
+          {visibleGlossary.map(({ entry, index }) => (
+            <section key={index} className="grid min-w-0 gap-3 rounded-lg border bg-background p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-semibold">{entry.source_term || "New glossary entry"}</h3>
+                  <p className="text-xs text-muted-foreground">Entry {index + 1}</p>
+                </div>
+                <Button type="button" variant="destructive" size="icon" onClick={() => onRemove(index)} aria-label="Remove entry">
+                  <Trash2 />
+                </Button>
+              </div>
+              <div className="grid min-w-0 gap-3">
+                <div className="grid gap-1.5">
+                  <Label htmlFor={`glossary-source-${index}`}>Source</Label>
+                  <Input
+                    id={`glossary-source-${index}`}
+                    value={entry.source_term}
+                    onChange={(event) => onUpdate(index, { source_term: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor={`glossary-english-${index}`}>English</Label>
+                  <Input
+                    id={`glossary-english-${index}`}
+                    value={entry.english_term}
+                    onChange={(event) => onUpdate(index, { english_term: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor={`glossary-category-${index}`}>Category</Label>
+                  <Input
+                    id={`glossary-category-${index}`}
+                    value={entry.category}
+                    onChange={(event) => onUpdate(index, { category: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor={`glossary-pronoun-${index}`}>Pronoun</Label>
+                  <Select
+                    value={entry.gender_or_pronoun || "__none__"}
+                    onValueChange={(value) => onUpdate(index, { gender_or_pronoun: value === "__none__" ? "" : value })}
+                  >
+                    <SelectTrigger id={`glossary-pronoun-${index}`} className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRONOUNS.map((pronoun) => (
+                        <SelectItem key={pronoun} value={pronoun}>
+                          {pronoun === "__none__" ? "none" : pronoun}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </section>
+          ))}
+          {visibleGlossary.length === 0 && (
+            <section className="rounded-lg border bg-background p-6 text-center text-sm text-muted-foreground">
+              No glossary entries match your search.
+            </section>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <span className="text-muted-foreground">

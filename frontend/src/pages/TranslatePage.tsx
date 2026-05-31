@@ -109,8 +109,8 @@ export function TranslatePage({
   onNext: () => void;
 }) {
   return (
-    <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20">
-      <section className="mx-auto grid min-h-[calc(100vh-3.5rem)] w-full max-w-6xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4 p-4 pb-0">
+    <main className="min-h-[calc(100vh-3.5rem)] min-w-0 overflow-x-hidden bg-muted/20">
+      <section className="mx-auto grid min-h-[calc(100vh-3.5rem)] w-full min-w-0 max-w-6xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-x-clip p-3 pb-0 sm:p-4 sm:pb-0">
         <WorkspaceHeader
           displayName={displayName}
           metadata={metadata}
@@ -146,7 +146,7 @@ export function TranslatePage({
           onTranslate={onTranslate}
         />
 
-        <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-4">
+        <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] gap-4">
           <ReaderPanel
             title={selectedChapter?.title}
             subtitle={
@@ -202,8 +202,8 @@ function WorkspaceHeader({
   onModelChange: (patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) => void;
 }) {
   return (
-    <section className="grid gap-3 rounded-lg border bg-card p-3">
-      <div className="flex flex-wrap items-center gap-3">
+    <section className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-card p-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-3 max-[700px]:grid max-[700px]:grid-cols-[auto_minmax(0,1fr)]">
         <div className="aspect-[7/9] h-16 w-[3rem] shrink-0 overflow-hidden rounded-md border bg-muted">
           {metadata?.cover_url ? (
             <img src={metadata.cover_url} alt={`${displayName} cover`} className="h-full w-full object-cover" />
@@ -219,12 +219,12 @@ function WorkspaceHeader({
             {formatInteger(chapterCount)} chapters · {formatInteger(translatedCount)} translated · {formatInteger(queuedCount)} queued
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onChooseBook}>
+        <div className="flex min-w-0 flex-wrap gap-2 max-[700px]:col-span-2 max-[700px]:grid max-[700px]:w-full max-[700px]:grid-cols-2">
+          <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-normal" onClick={onChooseBook}>
             <Library />
             Choose Book
           </Button>
-          <Button type="button" variant="outline" size="sm" disabled={!canExport} onClick={onExport}>
+          <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-normal" disabled={!canExport} onClick={onExport}>
             <Download />
             Export EPUB
           </Button>
@@ -301,37 +301,43 @@ function ChapterPanel({
   const canTranslate = !busy && (selectedCount > 0 || Boolean(selectedFile));
 
   return (
-    <section className="grid gap-3 rounded-lg border bg-card p-3">
+    <section className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Chapters</h2>
           <div className="text-xs text-muted-foreground">{summary}</div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onSelectUntranslated} disabled={busy || chapters.length === 0}>
+        <div className="flex min-w-0 flex-wrap gap-2 max-[700px]:grid max-[700px]:w-full max-[700px]:grid-cols-2">
+          <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-normal" onClick={onSelectUntranslated} disabled={busy || chapters.length === 0}>
             <Check />
             New
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={onSelectFromCurrent} disabled={busy || !selectedFile}>
+          <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-normal" onClick={onSelectFromCurrent} disabled={busy || !selectedFile}>
             <ClipboardList />
             From Current
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={onClear} disabled={busy || selectedCount === 0}>
+          <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-normal" onClick={onClear} disabled={busy || selectedCount === 0}>
             <Eraser />
             Clear
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => onTranslate("only")} disabled={!canTranslate}>
+          <Button type="button" variant="outline" size="sm" className="min-w-0 whitespace-normal" onClick={() => onTranslate("only")} disabled={!canTranslate}>
             <Check />
             Translate Only
           </Button>
-          <Button type="button" size="sm" onClick={() => onTranslate("full")} disabled={!canTranslate}>
+          <Button
+            type="button"
+            size="sm"
+            className="min-w-0 whitespace-normal max-[700px]:col-span-2"
+            onClick={() => onTranslate("full")}
+            disabled={!canTranslate}
+          >
             <WandSparkles />
             Translate + Glossary
           </Button>
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="relative min-w-48 flex-1">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 max-[700px]:grid">
+        <div className="relative min-w-0 flex-1 max-[700px]:w-full sm:min-w-48">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
@@ -341,17 +347,17 @@ function ChapterPanel({
             onChange={(event) => onSearchChange(event.target.value)}
           />
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="min-w-0 text-xs text-muted-foreground">
           Translate target: <span className="font-medium text-foreground">{target}</span>
         </span>
       </div>
-      <ScrollArea className="h-56 rounded-lg border bg-background max-[980px]:h-72">
-        <Table>
+      <ScrollArea className="h-56 min-w-0 overflow-hidden rounded-lg border bg-background max-[980px]:h-72">
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">Use</TableHead>
               <TableHead>Chapter</TableHead>
-              <TableHead className="w-28 text-right">State</TableHead>
+              <TableHead className="w-24 text-right sm:w-28">State</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -434,7 +440,7 @@ function ChapterNavigation({
   const hasChapter = currentIndex >= 0 && total > 0;
 
   return (
-    <footer className="sticky bottom-0 z-10 -mx-4 grid gap-2 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+    <footer className="sticky bottom-0 z-10 -mx-3 grid min-w-0 gap-2 border-t bg-background/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur sm:-mx-4 sm:px-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
       <Button
         type="button"
         variant="outline"
@@ -497,7 +503,7 @@ function ReaderPanel({
   const value = tab === "raw" ? source : translated;
 
   return (
-    <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-3">
+    <div className="grid min-h-0 min-w-0 grid-rows-[auto_auto_1fr] gap-3">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold">{title || "Select a chapter"}</h2>
         <div className="text-xs text-muted-foreground">{subtitle}</div>
@@ -528,7 +534,7 @@ function ReaderPanel({
           Translated
         </button>
       </div>
-      <Textarea value={value} readOnly className="h-full min-h-64 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed" />
+      <Textarea value={value} readOnly className="h-full min-h-64 min-w-0 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed" />
     </div>
   );
 }
