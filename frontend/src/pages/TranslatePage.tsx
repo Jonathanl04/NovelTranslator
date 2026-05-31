@@ -1,4 +1,8 @@
 import {
+  useEffect,
+  useRef,
+} from "react";
+import {
   BookOpen,
   Check,
   ChevronLeft,
@@ -110,7 +114,7 @@ export function TranslatePage({
 }) {
   return (
     <main className="min-h-[calc(100vh-3.5rem)] min-w-0 overflow-x-hidden bg-muted/20">
-      <section className="mx-auto grid min-h-[calc(100vh-3.5rem)] w-full min-w-0 max-w-6xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-x-clip p-3 pb-0 sm:p-4 sm:pb-0">
+      <section className="mx-auto grid min-h-[calc(100vh-3.5rem)] w-full min-w-0 max-w-6xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-x-clip p-3 pb-32 sm:p-4 sm:pb-32">
         <WorkspaceHeader
           displayName={displayName}
           metadata={metadata}
@@ -157,6 +161,7 @@ export function TranslatePage({
             tab={readerTab}
             source={source}
             translated={translated}
+            resetKey={selectedFile}
             onTabChange={onReaderTabChange}
           />
 
@@ -440,7 +445,7 @@ function ChapterNavigation({
   const hasChapter = currentIndex >= 0 && total > 0;
 
   return (
-    <footer className="sticky bottom-0 z-10 -mx-3 grid min-w-0 gap-2 border-t bg-background/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur sm:-mx-4 sm:px-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+    <footer className="fixed inset-x-0 bottom-0 z-30 mx-auto grid min-w-0 max-w-6xl gap-2 border-t bg-background/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur sm:px-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
       <Button
         type="button"
         variant="outline"
@@ -491,6 +496,7 @@ function ReaderPanel({
   tab,
   source,
   translated,
+  resetKey,
   onTabChange,
 }: {
   title?: string;
@@ -498,12 +504,20 @@ function ReaderPanel({
   tab: ReaderTab;
   source: string;
   translated: string;
+  resetKey: string;
   onTabChange: (tab: ReaderTab) => void;
 }) {
   const value = tab === "raw" ? source : translated;
+  const readerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.scrollTo({ top: 0 });
+    readerRef.current?.scrollIntoView({ block: "start" });
+  }, [resetKey]);
 
   return (
-    <div className="grid min-h-0 min-w-0 grid-rows-[auto_auto_1fr] gap-3">
+    <div ref={readerRef} className="grid min-h-0 min-w-0 scroll-mt-16 grid-rows-[auto_auto_1fr] gap-3">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold">{title || "Select a chapter"}</h2>
         <div className="text-xs text-muted-foreground">{subtitle}</div>
@@ -534,7 +548,12 @@ function ReaderPanel({
           Translated
         </button>
       </div>
-      <Textarea value={value} readOnly className="h-full min-h-64 min-w-0 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed" />
+      <Textarea
+        ref={textareaRef}
+        value={value}
+        readOnly
+        className="h-full min-h-64 min-w-0 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed"
+      />
     </div>
   );
 }
