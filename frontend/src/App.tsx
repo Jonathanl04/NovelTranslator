@@ -669,12 +669,12 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-20 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-background/95 px-5 pr-16 backdrop-blur max-[760px]:grid-cols-1 max-[760px]:h-auto max-[760px]:gap-3 max-[760px]:py-3">
-        <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-20 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-background/95 px-5 pr-16 backdrop-blur max-[760px]:h-auto max-[760px]:grid-cols-1 max-[760px]:gap-3 max-[760px]:px-3 max-[760px]:py-3">
+        <div className="flex items-center gap-2 max-[760px]:pr-14">
           <BookOpen className="size-5 text-teal-700" />
           <h1 className="text-base font-semibold">Novel Translator</h1>
         </div>
-        <nav className="flex items-center justify-center gap-1 rounded-lg bg-muted p-1">
+        <nav className="flex w-full min-w-0 items-center justify-center gap-1 rounded-lg bg-muted p-1">
           <Button
             type="button"
             size="sm"
@@ -706,7 +706,7 @@ export function App() {
             Glossary
           </Button>
         </nav>
-        <div className={cn("min-w-0 truncate text-right text-sm text-muted-foreground max-[760px]:text-left", error && "text-destructive")}>
+        <div className={cn("min-w-0 truncate text-right text-sm text-muted-foreground max-[760px]:pr-14 max-[760px]:text-left", error && "text-destructive")}>
           {status || "Ready"}
         </div>
         <Button
