@@ -14,6 +14,7 @@ from .source_language import contains_source_language_text, source_language_frag
 state_lock = threading.Lock()
 TRANSLATION_JSON_RETRIES = 2
 INVALID_TRANSLATION_JSON_MESSAGE = "DeepSeek message was not valid translation JSON."
+INVALID_GLOSSARY_JSON_MESSAGE = "DeepSeek message was not valid glossary JSON."
 INCOMPLETE_TRANSLATION_MESSAGE = "DeepSeek returned an incomplete translation."
 MIN_SOURCE_LENGTH_FOR_INCOMPLETE_TRANSLATION_CHECK = 200
 MIN_TRANSLATION_TO_SOURCE_RATIO = 0.8
@@ -129,8 +130,24 @@ Chapter title:
 
 Chapter body:
 {body}
-""".strip()
+    """.strip()
     return [{"role": "system", "content": build_cached_prefix(glossary)}, {"role": "user", "content": user}]
+
+
+def build_invalid_glossary_json_retry_messages(
+    glossary_messages: list[dict[str, str]], invalid_json: str
+) -> list[dict[str, str]]:
+    user = """
+The previous message was not valid JSON and could not be parsed.
+Please check it and resend the glossary extraction as valid JSON only.
+Return exactly the same schema with glossary_updates.
+Do not include explanations or Markdown.
+""".strip()
+    return [
+        *glossary_messages,
+        {"role": "assistant", "content": invalid_json},
+        {"role": "user", "content": user},
+    ]
 
 
 def deepseek_request_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
@@ -355,7 +372,7 @@ def parse_glossary_response(data: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
-            raise AppError("DeepSeek message was not valid glossary JSON.", 502) from exc
+            raise AppError(INVALID_GLOSSARY_JSON_MESSAGE, 502) from exc
 
     updates = data.get("glossary_updates")
     if not isinstance(updates, list):
@@ -379,13 +396,26 @@ def populate_glossary_for_chapter(
     with state_lock:
         glossary = load_glossary(novel)
     messages = build_glossary_messages(title, body, glossary)
+    retry_messages = messages
+    api_response: dict[str, Any] = {}
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)
-    api_response = call_api(config["api_key"], config["glossary_model"], messages)
     try:
-        updates = parse_glossary_response(api_response)
-    except AppError as exc:
-        log_parse_failure("glossary_parse_error", config["glossary_model"], messages, api_response, exc)
+        for retry_index in range(TRANSLATION_JSON_RETRIES + 1):
+            if should_abort and should_abort():
+                raise AppError("Bulk translation aborted.", 409)
+            api_response = call_api(config["api_key"], config["glossary_model"], retry_messages)
+            try:
+                updates = parse_glossary_response(api_response)
+                break
+            except AppError as exc:
+                log_parse_failure("glossary_parse_error", config["glossary_model"], retry_messages, api_response, exc)
+                if INVALID_GLOSSARY_JSON_MESSAGE not in str(exc) or retry_index == TRANSLATION_JSON_RETRIES:
+                    raise
+                retry_messages = build_invalid_glossary_json_retry_messages(
+                    retry_messages, response_message_content(api_response)
+                )
+    except AppError:
         raise
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)
