@@ -172,6 +172,13 @@ export function App() {
     }),
     [bulkItems]
   );
+  const bulkItemByFile = useMemo(() => {
+    const map = new Map<string, BulkItem>();
+    for (const item of bulkItems) {
+      map.set(item.filename, item);
+    }
+    return map;
+  }, [bulkItems]);
   const filteredNovels = useMemo(() => {
     const query = bookSearch.trim().toLocaleLowerCase();
     const matched = query
@@ -531,20 +538,32 @@ export function App() {
       });
   }
 
-  async function runTranslation(mode: "full" | "only") {
-    if (!novel || !selectedFile || busy) return;
-    const chapter = chapters.find((item) => item.filename === selectedFile);
-    if (!chapter) return;
+  async function runTranslate(mode: "full" | "only") {
+    if (!novel || busy) return;
+    // Translate the checked chapters, or fall back to the currently open chapter.
+    const targets =
+      selectedBulkChapters.length > 0
+        ? selectedBulkChapters
+        : selectedChapter
+          ? [selectedChapter]
+          : [];
+    if (targets.length === 0) return;
+
+    const queue = targets.map((chapter) => ({
+      filename: chapter.filename,
+      title: chapter.title,
+      status: "pending" as const,
+      mode,
+    }));
+
+    setBulkItems(queue);
     setManualBusy(true);
-    const queue = [
-      {
-        filename: chapter.filename,
-        title: chapter.title,
-        status: "pending" as const,
-        mode,
-      },
-    ];
-    showStatus(mode === "full" ? "Populating glossary and translating..." : "Translating with current glossary...");
+    showStatus(
+      mode === "full"
+        ? `Translating ${queue.length} ${queue.length === 1 ? "chapter" : "chapters"} with glossary...`
+        : `Translating ${queue.length} ${queue.length === 1 ? "chapter" : "chapters"} with current glossary...`
+    );
+
     try {
       const state = await api.startBulkTranslation(novel, queue);
       previousBulkState.current = state;
@@ -552,6 +571,9 @@ export function App() {
       setBulkRunning(state.running);
       setBulkSelection(new Set(queue.map((item) => item.filename)));
       showStatus(describeBulkProgress(state));
+      if (!state.running) {
+        setBulkSelection(new Set());
+      }
     } catch (caught) {
       showStatus(errorMessage(caught), true);
     } finally {
@@ -566,39 +588,6 @@ export function App() {
       showStatus("Glossary saved.");
     } catch (caught) {
       showStatus(errorMessage(caught), true);
-    }
-  }
-
-  async function runBulkTranslation(mode: "full" | "only") {
-    if (!novel || busy || selectedBulkChapters.length === 0) return;
-
-    const queue = selectedBulkChapters.map((chapter) => ({
-      filename: chapter.filename,
-      title: chapter.title,
-      status: "pending" as const,
-      mode,
-    }));
-
-    setBulkItems(queue);
-    setManualBusy(true);
-    showStatus(
-      mode === "full"
-        ? `Bulk translating ${queue.length} selected ${queue.length === 1 ? "chapter" : "chapters"} with glossary...`
-        : `Bulk translating ${queue.length} selected ${queue.length === 1 ? "chapter" : "chapters"} with current glossary...`
-    );
-
-    try {
-      const state = await api.startBulkTranslation(novel, queue);
-      previousBulkState.current = state;
-      setBulkItems(state.items);
-      setBulkRunning(state.running);
-      setBulkSelection(new Set(queue.map((item) => item.filename)));
-      showStatus(describeBulkProgress(state));
-      if (!state.running) {
-        setBulkSelection(new Set());
-      }
-    } finally {
-      setManualBusy(false);
     }
   }
 
@@ -762,132 +751,66 @@ export function App() {
           onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
         />
       ) : page === "workspace" ? (
-        <main className="grid min-h-[calc(100vh-3.5rem)] grid-cols-[320px_minmax(0,1fr)] max-[980px]:grid-cols-1">
-          <aside className="sticky top-14 grid h-[calc(100vh-3.5rem)] min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden border-r bg-muted/20 p-4 max-[980px]:static max-[980px]:h-auto max-[980px]:overflow-visible max-[980px]:border-r-0 max-[980px]:border-b">
-            <section className="grid gap-3">
-              <NovelCover novel={novel} metadata={novelMetadata} />
-              <Button type="button" variant="outline" onClick={() => setPage("library")}>
-                <Library />
-                Choose Book
-              </Button>
-              <div className="grid grid-cols-3 gap-2 rounded-lg border bg-background p-3 text-center text-xs">
-                <Metric label="Chapters" value={chapters.length} />
-                <Metric label="Translated" value={chapters.length - untranslatedCount} />
-                <Metric label="Queued" value={bulkSelection.size} />
-              </div>
-              <Button type="button" variant="outline" disabled={!novel || busy || chapters.length === untranslatedCount} onClick={exportEpub}>
-                <Download />
-                Export EPUB
-              </Button>
-            </section>
+        <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20">
+          <section className="mx-auto grid min-h-[calc(100vh-3.5rem)] w-full max-w-6xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4 p-4 pb-0">
+            <WorkspaceHeader
+              displayName={novelDisplayName(novel)}
+              metadata={novelMetadata}
+              chapterCount={chapters.length}
+              translatedCount={chapters.length - untranslatedCount}
+              queuedCount={bulkSelection.size}
+              glossaryModel={config.glossary_model}
+              translationModel={config.translation_model}
+              canExport={Boolean(novel) && chapters.length > 0 && chapters.length !== untranslatedCount}
+              busy={busy}
+              onChooseBook={() => setPage("library")}
+              onExport={exportEpub}
+              onModelChange={updateConfigModels}
+            />
 
-            <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">Chapters</h2>
-                <Badge variant="outline">{untranslatedCount} new</Badge>
-              </div>
-              <Input
-                type="search"
-                value={chapterSearch}
-                placeholder="Search chapters..."
-                className="bg-background"
-                onChange={(event) => setChapterSearch(event.target.value)}
-              />
-              <ScrollArea className="h-full rounded-lg border bg-background pr-2 max-[980px]:h-72">
-                <div className="grid gap-1.5 p-2">
-                  {visibleChapters.map((chapter) => (
-                    <button
-                      key={chapter.filename}
-                      type="button"
-                      className={cn(
-                        "grid min-h-11 w-full grid-cols-[1fr_auto] items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted",
-                        selectedFile === chapter.filename &&
-                          "border-teal-700 bg-teal-50/70 dark:border-teal-400 dark:bg-teal-950/40"
-                      )}
-                      onClick={() => selectChapter(novel, chapter.filename).catch((caught) => showStatus(errorMessage(caught), true))}
-                    >
-                      <span className="min-w-0 [overflow-wrap:anywhere] font-medium leading-tight">{chapter.title}</span>
-                      <Badge variant={chapter.translated ? "secondary" : "outline"} className={chapter.translated ? "bg-teal-50 text-teal-800" : ""}>
-                        {chapter.translated ? "done" : "new"}
-                      </Badge>
-                    </button>
-                  ))}
-                  {!visibleChapters.length && (
-                    <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-                      No chapters match your search.
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </section>
-          </aside>
-
-          <section className="grid min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-4 p-4 pb-0">
-            <section className="grid gap-3 rounded-lg border bg-card p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold">{selectedChapter?.title || "Select a chapter"}</h2>
-                  <div className="text-xs text-muted-foreground">
-                    {selectedChapter ? `${formatInteger(selectedChapter.source_size)} source chars` : "Choose a chapter to preview and translate."}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" disabled={busy || !selectedFile} onClick={() => runTranslation("only")}>
-                    <Check />
-                    Translate Only
-                  </Button>
-                  <Button type="button" disabled={busy || !selectedFile} onClick={() => runTranslation("full")}>
-                    <WandSparkles />
-                    Translate + Glossary
-                  </Button>
-                </div>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                <ModelSelect
-                  id="glossary-model"
-                  label="Glossary model"
-                  value={config.glossary_model}
-                  onChange={(glossary_model) => updateConfigModels({ glossary_model })}
-                />
-                <ModelSelect
-                  id="translation-model"
-                  label="Translation model"
-                  value={config.translation_model}
-                  onChange={(translation_model) => updateConfigModels({ translation_model })}
-                />
-              </div>
-            </section>
-
-            <BulkPanel
+            <ChapterPanel
               busy={busy}
               chapters={chapters}
+              visibleChapters={visibleChapters}
+              search={chapterSearch}
+              onSearchChange={setChapterSearch}
               selectedFile={selectedFile}
-              selectedCount={bulkSelection.size}
-              selected={bulkSelection}
-              items={bulkItems}
+              selection={bulkSelection}
+              itemsByFile={bulkItemByFile}
+              itemsTotal={bulkItems.length}
               counts={bulkCounts}
+              untranslatedCount={untranslatedCount}
+              onOpen={(filename) => selectChapter(novel, filename).catch((caught) => showStatus(errorMessage(caught), true))}
               onToggle={toggleBulkChapter}
               onSelectUntranslated={selectUntranslated}
               onSelectFromCurrent={selectFromCurrent}
               onClear={() => setBulkSelection(new Set())}
-              onRun={runBulkTranslation}
+              onTranslate={runTranslate}
             />
 
-            <ReaderPanel
-              tab={readerTab}
-              source={source}
-              translated={translated}
-              onTabChange={setReaderTab}
-            />
+            <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-4">
+              <ReaderPanel
+                title={selectedChapter?.title}
+                subtitle={
+                  selectedChapter
+                    ? `${formatInteger(selectedChapter.source_size)} source chars`
+                    : "Choose a chapter to preview and translate."
+                }
+                tab={readerTab}
+                source={source}
+                translated={translated}
+                onTabChange={setReaderTab}
+              />
 
-            <ChapterNavigation
-              currentIndex={selectedChapterIndex}
-              total={chapters.length}
-              previousChapter={previousChapter}
-              nextChapter={nextChapter}
-              onPrevious={() => goToChapter(previousChapter?.filename)}
-              onNext={() => goToChapter(nextChapter?.filename)}
-            />
+              <ChapterNavigation
+                currentIndex={selectedChapterIndex}
+                total={chapters.length}
+                previousChapter={previousChapter}
+                nextChapter={nextChapter}
+                onPrevious={() => goToChapter(previousChapter?.filename)}
+                onNext={() => goToChapter(nextChapter?.filename)}
+              />
+            </div>
           </section>
         </main>
       ) : (
@@ -1153,61 +1076,138 @@ function BookCard({
   );
 }
 
-function NovelCover({ novel, metadata }: { novel: string; metadata: NovelMetadata | null }) {
-  const displayName = metadata?.translated_name || novel;
-  if (!novel || !metadata?.cover_url) {
-    return null;
-  }
-
+function WorkspaceHeader({
+  displayName,
+  metadata,
+  chapterCount,
+  translatedCount,
+  queuedCount,
+  glossaryModel,
+  translationModel,
+  canExport,
+  busy,
+  onChooseBook,
+  onExport,
+  onModelChange,
+}: {
+  displayName: string;
+  metadata: NovelMetadata | null;
+  chapterCount: number;
+  translatedCount: number;
+  queuedCount: number;
+  glossaryModel: Model;
+  translationModel: Model;
+  canExport: boolean;
+  busy: boolean;
+  onChooseBook: () => void;
+  onExport: () => void;
+  onModelChange: (patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) => void;
+}) {
   return (
-    <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-background p-2">
-      <img
-        src={metadata.cover_url}
-        alt={`${displayName} cover`}
-        className="aspect-[7/9] h-24 w-[72px] rounded-md object-cover"
-      />
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold">{displayName}</div>
+    <section className="grid gap-3 rounded-lg border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="aspect-[7/9] h-16 w-[3rem] shrink-0 overflow-hidden rounded-md border bg-muted">
+          {metadata?.cover_url ? (
+            <img src={metadata.cover_url} alt={`${displayName} cover`} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-muted-foreground">
+              <BookOpen className="size-5" />
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold">{displayName || "No book selected"}</h2>
+          <div className="text-xs text-muted-foreground">
+            {formatInteger(chapterCount)} chapters · {formatInteger(translatedCount)} translated · {formatInteger(queuedCount)} queued
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onChooseBook}>
+            <Library />
+            Choose Book
+          </Button>
+          <Button type="button" variant="outline" size="sm" disabled={!canExport || busy} onClick={onExport}>
+            <Download />
+            Export EPUB
+          </Button>
+        </div>
       </div>
-    </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        <ModelSelect
+          id="glossary-model"
+          label="Glossary model"
+          value={glossaryModel}
+          onChange={(glossary_model) => onModelChange({ glossary_model })}
+        />
+        <ModelSelect
+          id="translation-model"
+          label="Translation model"
+          value={translationModel}
+          onChange={(translation_model) => onModelChange({ translation_model })}
+        />
+      </div>
+    </section>
   );
 }
 
-function BulkPanel({
+function ChapterPanel({
   busy,
   chapters,
+  visibleChapters,
+  search,
+  onSearchChange,
   selectedFile,
-  selectedCount,
-  selected,
-  items,
+  selection,
+  itemsByFile,
+  itemsTotal,
   counts,
+  untranslatedCount,
+  onOpen,
   onToggle,
   onSelectUntranslated,
   onSelectFromCurrent,
   onClear,
-  onRun,
+  onTranslate,
 }: {
   busy: boolean;
   chapters: Chapter[];
+  visibleChapters: Chapter[];
+  search: string;
+  onSearchChange: (value: string) => void;
   selectedFile: string;
-  selectedCount: number;
-  selected: Set<string>;
-  items: BulkItem[];
+  selection: Set<string>;
+  itemsByFile: Map<string, BulkItem>;
+  itemsTotal: number;
   counts: { done: number; failed: number; pending: number; translating: number };
+  untranslatedCount: number;
+  onOpen: (filename: string) => void;
   onToggle: (filename: string, checked: boolean) => void;
   onSelectUntranslated: () => void;
   onSelectFromCurrent: () => void;
   onClear: () => void;
-  onRun: (mode: "full" | "only") => void;
+  onTranslate: (mode: "full" | "only") => void;
 }) {
+  const selectedCount = selection.size;
+  const summary =
+    itemsTotal > 0
+      ? [
+          `${counts.done}/${itemsTotal} done`,
+          counts.translating ? `${counts.translating} active` : "",
+          counts.pending ? `${counts.pending} pending` : "",
+          counts.failed ? `${counts.failed} failed` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : `${untranslatedCount} new`;
+  const target = selectedCount > 0 ? `${selectedCount} selected` : "current chapter";
+  const canTranslate = !busy && (selectedCount > 0 || Boolean(selectedFile));
+
   return (
     <section className="grid gap-3 rounded-lg border bg-card p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">Bulk Translate</h2>
-          <div className="text-xs text-muted-foreground">
-            {selectedCount} selected; {counts.done}/{items.length || 0} completed
-          </div>
+          <h2 className="text-sm font-semibold">Chapters</h2>
+          <div className="text-xs text-muted-foreground">{summary}</div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onSelectUntranslated} disabled={busy || chapters.length === 0}>
@@ -1222,52 +1222,98 @@ function BulkPanel({
             <Eraser />
             Clear
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => onRun("only")} disabled={busy || selectedCount === 0}>
+          <Button type="button" variant="outline" size="sm" onClick={() => onTranslate("only")} disabled={!canTranslate}>
             <Check />
             Translate Only
           </Button>
-          <Button type="button" size="sm" onClick={() => onRun("full")} disabled={busy || selectedCount === 0}>
+          <Button type="button" size="sm" onClick={() => onTranslate("full")} disabled={!canTranslate}>
             <WandSparkles />
             Translate + Glossary
           </Button>
         </div>
       </div>
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <ScrollArea className="h-44 rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">Use</TableHead>
-                <TableHead>Chapter</TableHead>
-                <TableHead className="w-24">State</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {chapters.map((chapter) => (
-                <TableRow key={chapter.filename}>
-                  <TableCell>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="relative min-w-48 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={search}
+            placeholder="Search chapters..."
+            className="bg-background pl-9"
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </div>
+        <span className="text-xs text-muted-foreground">
+          Translate target: <span className="font-medium text-foreground">{target}</span>
+        </span>
+      </div>
+      <ScrollArea className="h-56 rounded-lg border bg-background max-[980px]:h-72">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">Use</TableHead>
+              <TableHead>Chapter</TableHead>
+              <TableHead className="w-28 text-right">State</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visibleChapters.map((chapter) => {
+              const item = itemsByFile.get(chapter.filename);
+              const isOpen = selectedFile === chapter.filename;
+              return (
+                <TableRow
+                  key={chapter.filename}
+                  className={cn(
+                    "cursor-pointer",
+                    isOpen && "bg-teal-50/70 hover:bg-teal-50/70 dark:bg-teal-950/40 dark:hover:bg-teal-950/40"
+                  )}
+                  onClick={() => onOpen(chapter.filename)}
+                >
+                  <TableCell onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       className="size-4 accent-teal-700"
-                      checked={selected.has(chapter.filename)}
+                      checked={selection.has(chapter.filename)}
                       disabled={busy}
                       onChange={(event) => onToggle(chapter.filename, event.target.checked)}
                       aria-label={`Select ${chapter.title}`}
                     />
                   </TableCell>
                   <TableCell className="whitespace-normal">
-                    <span className="line-clamp-2 [overflow-wrap:anywhere] text-sm font-medium">{chapter.title}</span>
+                    <span
+                      className={cn(
+                        "line-clamp-2 [overflow-wrap:anywhere] text-sm font-medium",
+                        isOpen && "text-teal-800 dark:text-teal-300"
+                      )}
+                    >
+                      {chapter.title}
+                    </span>
+                    {item?.status === "failed" && item.message && (
+                      <span className="mt-0.5 block text-xs text-destructive [overflow-wrap:anywhere]">{item.message}</span>
+                    )}
                   </TableCell>
-                  <TableCell>
-                    <Badge variant={chapter.translated ? "secondary" : "outline"}>{chapter.translated ? "done" : "new"}</Badge>
+                  <TableCell className="text-right">
+                    {item ? (
+                      <BulkBadge status={item.status} />
+                    ) : (
+                      <Badge variant={chapter.translated ? "secondary" : "outline"} className={chapter.translated ? "bg-teal-50 text-teal-800" : ""}>
+                        {chapter.translated ? "done" : "new"}
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </ScrollArea>
-        <BulkProgress items={items} counts={counts} />
-      </div>
+              );
+            })}
+            {visibleChapters.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
+                  No chapters match your search.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </ScrollArea>
     </section>
   );
 }
@@ -1627,11 +1673,15 @@ function ModelSelect({
 }
 
 function ReaderPanel({
+  title,
+  subtitle,
   tab,
   source,
   translated,
   onTabChange,
 }: {
+  title?: string;
+  subtitle: string;
   tab: ReaderTab;
   source: string;
   translated: string;
@@ -1640,7 +1690,11 @@ function ReaderPanel({
   const value = tab === "raw" ? source : translated;
 
   return (
-    <div className="grid min-h-0 grid-rows-[auto_1fr] gap-3">
+    <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-3">
+      <div className="min-w-0">
+        <h2 className="truncate text-sm font-semibold">{title || "Select a chapter"}</h2>
+        <div className="text-xs text-muted-foreground">{subtitle}</div>
+      </div>
       <div className="mx-auto grid w-full max-w-xl grid-cols-2 rounded-lg bg-muted p-1">
         <button
           type="button"
@@ -1668,45 +1722,6 @@ function ReaderPanel({
         </button>
       </div>
       <Textarea value={value} readOnly className="h-full min-h-64 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed" />
-    </div>
-  );
-}
-
-function BulkProgress({
-  items,
-  counts,
-}: {
-  items: BulkItem[];
-  counts: { done: number; failed: number; pending: number; translating: number };
-}) {
-  if (!items.length) {
-    return (
-      <div className="grid min-h-44 content-center rounded-lg border bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-        Select chapters, then start a bulk translation to track progress here.
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-2 rounded-lg border bg-muted/20 p-2">
-      <div className="flex flex-wrap gap-1 px-1 text-xs text-muted-foreground">
-        <span>{counts.pending} pending</span>
-        <span>{counts.translating} active</span>
-        <span>{counts.failed} failed</span>
-      </div>
-      <ScrollArea className="h-36 pr-2">
-        <div className="grid gap-1">
-          {items.map((item) => (
-            <div key={item.filename} className="grid gap-1 rounded-md border bg-background p-2 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <span className="min-w-0 [overflow-wrap:anywhere] font-medium leading-tight">{item.title}</span>
-                <BulkBadge status={item.status} />
-              </div>
-              {item.message && <div className="text-muted-foreground [overflow-wrap:anywhere]">{item.message}</div>}
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
     </div>
   );
 }
@@ -1749,15 +1764,6 @@ function UsageSummary({
         <span>Total tokens</span>
         <span className="text-right tabular-nums">{formatInteger(usage.total_tokens)}</span>
       </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="grid gap-0.5">
-      <span className="text-base font-semibold tabular-nums">{formatInteger(value)}</span>
-      <span className="text-muted-foreground">{label}</span>
     </div>
   );
 }
