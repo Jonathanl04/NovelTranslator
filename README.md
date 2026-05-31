@@ -106,6 +106,11 @@ Supported models:
 
 Using the same model for both can improve cache-hit opportunities because glossary and translation prompts share a stable prefix.
 
+Estimated cost:
+
+- About `$0.002` per chapter for roughly `10,000` characters when using `DeepSeek Flash` or `Mimo 2.5`.
+- Actual cost may vary with chapter length, glossary size, and repair passes.
+
 ## Translation Flow
 
 `Translate Selected Chapter`:
