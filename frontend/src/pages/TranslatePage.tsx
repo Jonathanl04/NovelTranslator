@@ -44,7 +44,7 @@ export function TranslatePage({
   translationModel,
   canExport,
   busy,
-  bulkRunning,
+  bulkQueueActive,
   chapters,
   visibleChapters,
   search,
@@ -85,7 +85,7 @@ export function TranslatePage({
   translationModel: Model;
   canExport: boolean;
   busy: boolean;
-  bulkRunning: boolean;
+  bulkQueueActive: boolean;
   chapters: Chapter[];
   visibleChapters: Chapter[];
   search: string;
@@ -137,7 +137,7 @@ export function TranslatePage({
 
         <ChapterPanel
           busy={busy}
-          bulkRunning={bulkRunning}
+          bulkQueueActive={bulkQueueActive}
           chapters={chapters}
           visibleChapters={visibleChapters}
           search={search}
@@ -262,7 +262,7 @@ function WorkspaceHeader({
 
 function ChapterPanel({
   busy,
-  bulkRunning,
+  bulkQueueActive,
   chapters,
   visibleChapters,
   search,
@@ -282,7 +282,7 @@ function ChapterPanel({
   onAbortBulk,
 }: {
   busy: boolean;
-  bulkRunning: boolean;
+  bulkQueueActive: boolean;
   chapters: Chapter[];
   visibleChapters: Chapter[];
   search: string;
@@ -351,7 +351,7 @@ function ChapterPanel({
             <WandSparkles />
             Translate + Glossary
           </Button>
-          {bulkRunning && (
+          {bulkQueueActive && (
             <Button
               type="button"
               variant="destructive"

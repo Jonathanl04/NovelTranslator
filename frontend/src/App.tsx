@@ -91,6 +91,7 @@ export function App() {
   const [scrapeState, setScrapeState] = useState<ScrapeState>(emptyScrapeState);
   const [manualBusy, setManualBusy] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkAborted, setBulkAborted] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
   const [usage, setUsage] = useState<Usage>(emptyUsage);
@@ -139,6 +140,7 @@ export function App() {
     }),
     [bulkItems]
   );
+  const bulkQueueActive = !bulkAborted && (bulkRunning || bulkItems.some((item) => item.status === "pending" || item.status === "translating"));
   const bulkItemByFile = useMemo(() => {
     const map = new Map<string, BulkItem>();
     for (const item of bulkItems) {
@@ -206,6 +208,7 @@ export function App() {
     if (!nextNovel) {
       setBulkItems([]);
       setBulkRunning(false);
+      setBulkAborted(false);
       setBulkSelection(new Set());
       previousBulkState.current = null;
       return;
@@ -213,6 +216,7 @@ export function App() {
     const state = await api.bulkTranslation(nextNovel);
     setBulkItems(state.items);
     setBulkRunning(state.running);
+    setBulkAborted(state.aborted);
     setBulkSelection(
       new Set(
         state.items
@@ -432,6 +436,7 @@ export function App() {
           previousBulkState.current = state;
           setBulkItems(state.items);
           setBulkRunning(state.running);
+          setBulkAborted(state.aborted);
           setBulkSelection(
             new Set(
               state.items
@@ -567,6 +572,7 @@ export function App() {
       previousBulkState.current = state;
       setBulkItems(state.items);
       setBulkRunning(state.running);
+      setBulkAborted(state.aborted);
       setBulkSelection(new Set(queue.map((item) => item.filename)));
       showStatus(describeBulkProgress(state));
       if (!state.running) {
@@ -586,6 +592,7 @@ export function App() {
       previousBulkState.current = state;
       setBulkItems(state.items);
       setBulkRunning(state.running);
+      setBulkAborted(state.aborted);
       setBulkSelection(
         new Set(
           state.items
@@ -796,7 +803,7 @@ export function App() {
           translationModel={config.translation_model}
           canExport={Boolean(novel) && chapters.length > 0 && chapters.length !== untranslatedCount}
           busy={busy}
-          bulkRunning={bulkRunning}
+          bulkQueueActive={bulkQueueActive}
           chapters={chapters}
           visibleChapters={visibleChapters}
           search={chapterSearch}
