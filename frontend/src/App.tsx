@@ -61,6 +61,7 @@ const SELECTED_CHAPTER_STORAGE_KEY = "novel-translator:selected-chapter";
 type Page = "library" | "workspace" | "glossary";
 type ReaderTab = "raw" | "translated";
 const BOOKS_PER_PAGE = 12;
+const GLOSSARY_ENTRIES_PER_PAGE = 20;
 
 const emptyConfig: Config = {
   has_api_key: false,
@@ -1309,6 +1310,52 @@ function GlossaryPage({
   onSave: () => void;
   onUpdate: (index: number, patch: Partial<GlossaryEntry>) => void;
 }) {
+  const [glossarySearch, setGlossarySearch] = useState("");
+  const [glossaryPage, setGlossaryPage] = useState(1);
+  const glossaryQuery = glossarySearch.trim().toLocaleLowerCase();
+  const filteredGlossary = useMemo(
+    () =>
+      glossary
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => {
+          if (!glossaryQuery) {
+            return true;
+          }
+          return [
+            entry.source_term,
+            entry.english_term,
+            entry.category,
+            entry.gender_or_pronoun,
+          ].some((value) => value.toLocaleLowerCase().includes(glossaryQuery));
+        }),
+    [glossary, glossaryQuery]
+  );
+  const totalGlossaryPages = Math.max(
+    1,
+    Math.ceil(filteredGlossary.length / GLOSSARY_ENTRIES_PER_PAGE)
+  );
+  const currentGlossaryPage = Math.min(glossaryPage, totalGlossaryPages);
+  const firstGlossaryIndex = (currentGlossaryPage - 1) * GLOSSARY_ENTRIES_PER_PAGE;
+  const visibleGlossary = filteredGlossary.slice(
+    firstGlossaryIndex,
+    firstGlossaryIndex + GLOSSARY_ENTRIES_PER_PAGE
+  );
+  const showingStart = filteredGlossary.length ? firstGlossaryIndex + 1 : 0;
+  const showingEnd = Math.min(
+    firstGlossaryIndex + GLOSSARY_ENTRIES_PER_PAGE,
+    filteredGlossary.length
+  );
+
+  useEffect(() => {
+    setGlossaryPage(1);
+  }, [glossaryQuery, novel]);
+
+  useEffect(() => {
+    if (glossaryPage > totalGlossaryPages) {
+      setGlossaryPage(totalGlossaryPages);
+    }
+  }, [glossaryPage, totalGlossaryPages]);
+
   return (
     <main className="grid min-h-[calc(100vh-3.5rem)] grid-cols-[320px_minmax(0,1fr)] max-[980px]:grid-cols-1">
       <aside className="grid content-start gap-4 border-r bg-muted/20 p-4 max-[980px]:border-r-0 max-[980px]:border-b">
@@ -1373,7 +1420,15 @@ function GlossaryPage({
             </div>
           </div>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={onAdd}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setGlossarySearch("");
+                setGlossaryPage(Math.ceil((glossary.length + 1) / GLOSSARY_ENTRIES_PER_PAGE));
+                onAdd();
+              }}
+            >
               <Plus />
               Add Entry
             </Button>
@@ -1381,6 +1436,24 @@ function GlossaryPage({
               <Save />
               Save Glossary
             </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="relative min-w-64 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={glossarySearch}
+              onChange={(event) => setGlossarySearch(event.target.value)}
+              placeholder="Search glossary..."
+              className="pl-9"
+            />
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>
+              Showing {showingStart}-{showingEnd} of {filteredGlossary.length}
+            </span>
+            {glossaryQuery && <span>matching {glossary.length} total</span>}
           </div>
         </div>
 
@@ -1396,7 +1469,7 @@ function GlossaryPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {glossary.map((entry, index) => (
+              {visibleGlossary.map(({ entry, index }) => (
                 <TableRow key={index}>
                   <TableCell className="min-w-44">
                     <Input value={entry.source_term} onChange={(event) => onUpdate(index, { source_term: event.target.value })} />
@@ -1434,6 +1507,36 @@ function GlossaryPage({
             </TableBody>
           </Table>
         </ScrollArea>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Page {currentGlossaryPage} of {totalGlossaryPages}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={currentGlossaryPage <= 1}
+              onClick={() => setGlossaryPage((current) => Math.max(1, current - 1))}
+            >
+              <ChevronLeft />
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={currentGlossaryPage >= totalGlossaryPages}
+              onClick={() =>
+                setGlossaryPage((current) => Math.min(totalGlossaryPages, current + 1))
+              }
+            >
+              Next
+              <ChevronRight />
+            </Button>
+          </div>
+        </div>
       </section>
     </main>
   );

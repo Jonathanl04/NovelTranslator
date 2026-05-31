@@ -564,6 +564,19 @@ class TranslatorAppTests(unittest.TestCase):
                 self.assertEqual(app.load_glossary("Book")[0]["source_term"], "徐邢")
                 self.assertTrue((glossaries / "Book" / "glossary" / "glossary.json").exists())
 
+    def test_write_json_replaces_file_without_leaving_temp_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "glossary.json"
+            path.write_text(json.dumps([{"source_term": "old"}]), encoding="utf-8")
+
+            app.write_json(path, [{"source_term": "太玄界", "english_term": "Taixuan Realm"}])
+
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                [{"source_term": "太玄界", "english_term": "Taixuan Realm"}],
+            )
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
     def test_translate_chapter_writes_output_and_updates_glossary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
