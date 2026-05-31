@@ -638,7 +638,7 @@ export function App() {
   }
 
   async function exportEpub() {
-    if (!novel || busy) return;
+    if (!novel) return;
     try {
       showStatus("Preparing EPUB export...");
       const response = await fetch(api.exportEpubUrl(novel));

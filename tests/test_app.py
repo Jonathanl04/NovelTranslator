@@ -424,6 +424,8 @@ class TranslatorAppTests(unittest.TestCase):
         )
 
         self.assertIn("Export EPUB", app_source)
+        self.assertIn("disabled={!canExport}", app_source)
+        self.assertNotIn("disabled={!canExport || busy}", app_source)
         self.assertIn("exportEpub", app_source)
         self.assertIn("exportEpubUrl", api_source)
         self.assertIn("/api/export/epub", api_source)

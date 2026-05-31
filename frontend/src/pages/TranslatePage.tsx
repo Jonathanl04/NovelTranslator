@@ -224,7 +224,7 @@ function WorkspaceHeader({
             <Library />
             Choose Book
           </Button>
-          <Button type="button" variant="outline" size="sm" disabled={!canExport || busy} onClick={onExport}>
+          <Button type="button" variant="outline" size="sm" disabled={!canExport} onClick={onExport}>
             <Download />
             Export EPUB
           </Button>
