@@ -13,6 +13,11 @@ import app
 from novel_translator import settings
 
 
+def frontend_source() -> str:
+    src = Path(__file__).resolve().parents[1] / "frontend" / "src"
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(src.rglob("*.tsx")))
+
+
 class TranslatorAppTests(unittest.TestCase):
     def test_glossary_and_translation_prompts_share_stable_prefix(self) -> None:
         glossary = [
@@ -399,27 +404,21 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertNotIn("character|place|sect", user_prompt)
 
     def test_glossary_category_ui_is_free_text(self) -> None:
-        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
-            encoding="utf-8"
-        )
+        app_source = frontend_source()
 
         self.assertIn("entry.category", app_source)
         self.assertNotIn("categories.map", app_source)
         self.assertNotIn("proper_noun", app_source)
 
     def test_glossary_page_is_rendered(self) -> None:
-        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
-            encoding="utf-8"
-        )
+        app_source = frontend_source()
 
         self.assertIn("GlossaryPage", app_source)
         self.assertIn("Save Glossary", app_source)
         self.assertIn("Add Entry", app_source)
 
     def test_epub_export_ui_is_rendered(self) -> None:
-        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
-            encoding="utf-8"
-        )
+        app_source = frontend_source()
         api_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "api.ts").read_text(
             encoding="utf-8"
         )
@@ -431,7 +430,7 @@ class TranslatorAppTests(unittest.TestCase):
 
     def test_scraper_is_connected_to_api_and_ui(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        app_source = (root / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        app_source = frontend_source()
         api_source = (root / "frontend" / "src" / "api.ts").read_text(encoding="utf-8")
         server_source = (root / "novel_translator" / "server.py").read_text(encoding="utf-8")
 
@@ -446,9 +445,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("download_uukanshu_range", server_source)
 
     def test_bulk_translation_progress_ui_is_rendered(self) -> None:
-        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
-            encoding="utf-8"
-        )
+        app_source = frontend_source()
         api_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "api.ts").read_text(
             encoding="utf-8"
         )
@@ -456,30 +453,26 @@ class TranslatorAppTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("runBulkTranslation", app_source)
-        self.assertIn("Bulk Translate", app_source)
-        self.assertIn("BulkProgress", app_source)
+        self.assertIn("runTranslate", app_source)
+        self.assertIn("Translate + Glossary", app_source)
+        self.assertIn("BulkBadge", app_source)
         self.assertIn("api.startBulkTranslation(novel, queue)", app_source)
         self.assertIn("api.bulkTranslation(nextNovel)", app_source)
         self.assertIn("/api/bulk-translate", api_source)
         self.assertIn("/api/bulk-translate", server_source)
 
     def test_model_select_changes_are_saved_immediately(self) -> None:
-        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
-            encoding="utf-8"
-        )
+        app_source = frontend_source()
 
-        self.assertIn("updateConfigModels({ glossary_model })", app_source)
-        self.assertIn("updateConfigModels({ translation_model })", app_source)
+        self.assertIn("onConfigChange({ glossary_model })", app_source)
+        self.assertIn("onConfigChange({ translation_model })", app_source)
         self.assertIn("keep_existing_key: true", app_source)
 
     def test_single_translation_uses_persisted_queue_and_progress_status(self) -> None:
-        app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx").read_text(
-            encoding="utf-8"
-        )
+        app_source = frontend_source()
 
-        self.assertIn('onRun("full")', app_source)
-        self.assertIn('onRun("only")', app_source)
+        self.assertIn('onTranslate("full")', app_source)
+        self.assertIn('onTranslate("only")', app_source)
         self.assertIn("showStatus(describeBulkProgress(state))", app_source)
         self.assertIn("describeBulkProgress", app_source)
 
