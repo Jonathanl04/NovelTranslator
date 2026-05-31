@@ -560,19 +560,23 @@ export function App() {
     }
   }
 
-  async function runBulkTranslation() {
+  async function runBulkTranslation(mode: "full" | "only") {
     if (!novel || busy || selectedBulkChapters.length === 0) return;
 
     const queue = selectedBulkChapters.map((chapter) => ({
       filename: chapter.filename,
       title: chapter.title,
       status: "pending" as const,
-      mode: "full" as const,
+      mode,
     }));
 
     setBulkItems(queue);
     setManualBusy(true);
-    showStatus(`Bulk translating ${queue.length} selected ${queue.length === 1 ? "chapter" : "chapters"}...`);
+    showStatus(
+      mode === "full"
+        ? `Bulk translating ${queue.length} selected ${queue.length === 1 ? "chapter" : "chapters"} with glossary...`
+        : `Bulk translating ${queue.length} selected ${queue.length === 1 ? "chapter" : "chapters"} with current glossary...`
+    );
 
     try {
       const state = await api.startBulkTranslation(novel, queue);
@@ -799,13 +803,13 @@ export function App() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" disabled={busy || !selectedFile} onClick={() => runTranslation("full")}>
-                    <WandSparkles />
-                    Translate Chapter
-                  </Button>
                   <Button type="button" variant="outline" disabled={busy || !selectedFile} onClick={() => runTranslation("only")}>
                     <Check />
                     Translate Only
+                  </Button>
+                  <Button type="button" disabled={busy || !selectedFile} onClick={() => runTranslation("full")}>
+                    <WandSparkles />
+                    Translate + Glossary
                   </Button>
                 </div>
               </div>
@@ -1148,7 +1152,7 @@ function BulkPanel({
   onSelectUntranslated: () => void;
   onSelectFromCurrent: () => void;
   onClear: () => void;
-  onRun: () => void;
+  onRun: (mode: "full" | "only") => void;
 }) {
   return (
     <section className="grid gap-3 rounded-lg border bg-card p-3">
@@ -1172,9 +1176,13 @@ function BulkPanel({
             <Eraser />
             Clear
           </Button>
-          <Button type="button" size="sm" onClick={onRun} disabled={busy || selectedCount === 0}>
+          <Button type="button" variant="outline" size="sm" onClick={() => onRun("only")} disabled={busy || selectedCount === 0}>
+            <Check />
+            Translate Only
+          </Button>
+          <Button type="button" size="sm" onClick={() => onRun("full")} disabled={busy || selectedCount === 0}>
             <WandSparkles />
-            Translate Selected
+            Translate + Glossary
           </Button>
         </div>
       </div>

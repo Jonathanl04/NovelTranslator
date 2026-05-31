@@ -478,7 +478,8 @@ class TranslatorAppTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('mode: "full" as const', app_source)
+        self.assertIn('onRun("full")', app_source)
+        self.assertIn('onRun("only")', app_source)
         self.assertIn("showStatus(describeBulkProgress(state))", app_source)
         self.assertIn("describeBulkProgress", app_source)
 
