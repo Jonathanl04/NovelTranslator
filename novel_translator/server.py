@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from scraper.download_69shuba import download_range as download_69shuba_range
+from scraper.download_twkan import download_range as download_twkan_range
 from scraper.download_uukanshu import download_range as download_uukanshu_range
 
 from . import settings
@@ -215,8 +216,10 @@ class Handler(BaseHTTPRequestHandler):
             downloader = download_69shuba_range
         elif host in {"uukanshu.cc", "www.uukanshu.cc"}:
             downloader = download_uukanshu_range
+        elif host in {"twkan.com", "www.twkan.com"}:
+            downloader = download_twkan_range
         else:
-            raise AppError("Supported scraper URLs are 69shuba.com and uukanshu.cc.")
+            raise AppError("Supported scraper URLs are 69shuba.com, uukanshu.cc, and twkan.com.")
 
         with scrape_lock:
             if scrape_state["running"]:
