@@ -138,7 +138,7 @@ def deepseek_request_payload(model: str, messages: list[dict[str, str]]) -> dict
         "model": model,
         "messages": messages,
         "thinking": {"type": "disabled"},
-        "temperature": 0.4,
+        "temperature": 1,
         "stream": False,
         "response_format": {"type": "json_object"},
     }

@@ -25,7 +25,7 @@ def call_deepseek(
         "messages": messages,
         "thinking": {"type": "disabled"},
         "reasoning": {"effort": "none", "exclude": True},
-        "temperature": 0.4,
+        "temperature": 1,
         "stream": False,
         "response_format": {"type": "json_object"},
     }

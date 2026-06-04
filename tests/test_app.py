@@ -310,7 +310,7 @@ class TranslatorAppTests(unittest.TestCase):
                 "messages": [{"role": "user", "content": "Hi"}],
                 "thinking": {"type": "disabled"},
                 "reasoning": {"effort": "none", "exclude": True},
-                "temperature": 0.4,
+                "temperature": 1,
                 "stream": False,
                 "response_format": {"type": "json_object"},
                 "provider": {
