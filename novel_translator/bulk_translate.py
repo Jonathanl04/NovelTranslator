@@ -10,9 +10,10 @@ from .json_store import read_json, write_json
 from .novel_names import ensure_translated_novel_name, needs_translated_novel_name
 from .translation import translate_chapter
 
-ALLOWED_BULK_STATUSES = {"pending", "translating", "done", "failed"}
+ALLOWED_BULK_STATUSES = {"pending", "translating", "done", "failed", "aborted"}
 ALLOWED_BULK_MODES = {"full", "only", "name"}
 NOVEL_NAME_TRANSLATION_FILENAME = "__novel_name__"
+BULK_TRANSLATION_ABORTED_MESSAGE = "Bulk translation aborted."
 
 _bulk_lock = Lock()
 _bulk_workers: dict[str, Thread] = {}
@@ -23,7 +24,7 @@ def bulk_state_path(novel: str):
 
 
 def empty_bulk_state(novel: str) -> dict[str, Any]:
-    return {"novel": novel, "running": False, "items": []}
+    return {"novel": novel, "running": False, "aborted": False, "items": []}
 
 
 def normalize_bulk_item(item: dict[str, Any]) -> dict[str, str]:
@@ -55,9 +56,11 @@ def load_bulk_state(novel: str) -> dict[str, Any]:
     if not isinstance(items, list):
         raise AppError("Bulk translation items must be a list.", 500)
     running = bool(raw.get("running", False))
+    aborted = bool(raw.get("aborted", False))
     return {
         "novel": safe_novel,
         "running": running,
+        "aborted": aborted,
         "items": [normalize_bulk_item(item) for item in items if isinstance(item, dict)],
     }
 
@@ -66,6 +69,7 @@ def save_bulk_state(novel: str, state: dict[str, Any]) -> dict[str, Any]:
     normalized = {
         "novel": novel,
         "running": bool(state.get("running", False)),
+        "aborted": bool(state.get("aborted", False)),
         "items": [
             normalize_bulk_item(item)
             for item in state.get("items", [])
@@ -150,6 +154,26 @@ def start_bulk_translation(novel: str, items: list[dict[str, Any]]) -> dict[str,
         return state
 
 
+def abort_bulk_translation(novel: str) -> dict[str, Any]:
+    safe_novel = novel.strip()
+    if not safe_novel:
+        return empty_bulk_state("")
+    with _bulk_lock:
+        state = load_bulk_state(safe_novel)
+        state["running"] = False
+        state["aborted"] = True
+        save_bulk_state(safe_novel, state)
+        return state
+
+
+def is_bulk_translation_aborted(novel: str) -> bool:
+    safe_novel = novel.strip()
+    if not safe_novel:
+        return False
+    with _bulk_lock:
+        return bool(load_bulk_state(safe_novel).get("aborted", False))
+
+
 def _prepare_state_for_resume(state: dict[str, Any]) -> dict[str, Any]:
     return {
         **state,
@@ -166,6 +190,8 @@ def _prepare_state_for_resume(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _should_resume(state: dict[str, Any], novel: str) -> bool:
+    if state.get("aborted", False):
+        return False
     if _is_worker_alive(novel):
         return False
     return any(item["status"] in {"pending", "translating"} for item in state["items"])
@@ -187,6 +213,10 @@ def _process_bulk_translation_queue(novel: str) -> None:
         while True:
             with _bulk_lock:
                 state = load_bulk_state(novel)
+                if state.get("aborted", False):
+                    state["running"] = False
+                    save_bulk_state(novel, state)
+                    return
                 current = next(
                     (item for item in state["items"] if item["status"] == "pending"),
                     None,
@@ -209,7 +239,7 @@ def _process_bulk_translation_queue(novel: str) -> None:
 
             try:
                 if current["mode"] == "name":
-                    ensure_translated_novel_name(novel)
+                    ensure_translated_novel_name(novel, should_abort=lambda: is_bulk_translation_aborted(novel))
                     if needs_translated_novel_name(novel):
                         raise AppError("OpenRouter API key is not configured.")
                 else:
@@ -217,16 +247,22 @@ def _process_bulk_translation_queue(novel: str) -> None:
                         novel,
                         current["filename"],
                         populate_glossary=current["mode"] == "full",
+                        should_abort=lambda: is_bulk_translation_aborted(novel),
                     )
             except Exception as exc:
                 with _bulk_lock:
                     state = load_bulk_state(novel)
                     for item in state["items"]:
                         if item["filename"] == current["filename"]:
-                            item["status"] = "failed"
-                            item["message"] = str(exc)
+                            if isinstance(exc, AppError) and str(exc) == BULK_TRANSLATION_ABORTED_MESSAGE:
+                                item["status"] = "aborted"
+                                item["message"] = "Aborted by user"
+                            else:
+                                item["status"] = "failed"
+                                item["message"] = str(exc)
                             break
                     state["running"] = False
+                    state["aborted"] = True
                     save_bulk_state(novel, state)
                 return
 

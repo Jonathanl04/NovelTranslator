@@ -486,7 +486,7 @@ class TranslatorAppTests(unittest.TestCase):
             seen = []
 
             def fake_translate(
-                novel: str, filename: str, populate_glossary: bool = True
+                novel: str, filename: str, populate_glossary: bool = True, should_abort=None
             ) -> dict[str, str]:
                 seen.append((novel, filename, populate_glossary))
                 return {"filename": filename}
@@ -521,6 +521,89 @@ class TranslatorAppTests(unittest.TestCase):
                 json.loads((root / "data" / "bulk" / "Book One.json").read_text(encoding="utf-8"))["items"][0]["message"],
                 "Saved",
             )
+
+    def test_failed_bulk_translation_does_not_resume(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seen = []
+
+            def fake_translate(
+                novel: str, filename: str, populate_glossary: bool = True, should_abort=None
+            ) -> dict[str, str]:
+                seen.append((novel, filename, populate_glossary))
+                raise app.AppError("DeepSeek message was not valid glossary JSON.", 502)
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ):
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [
+                        {"filename": "001.txt", "title": "Chapter 1", "status": "pending"},
+                        {"filename": "002.txt", "title": "Chapter 2", "status": "pending"},
+                    ],
+                )
+
+                deadline = time.time() + 2
+                state = bulk_translate.get_bulk_state("Book One")
+                while state["running"] and time.time() < deadline:
+                    time.sleep(0.02)
+                    state = bulk_translate.get_bulk_state("Book One")
+
+                self.assertFalse(state["running"])
+                self.assertTrue(state["aborted"])
+                self.assertEqual(seen, [("Book One", "001.txt", True)])
+                self.assertEqual([item["status"] for item in state["items"]], ["failed", "pending"])
+
+                bulk_translate.get_bulk_state("Book One")
+                time.sleep(0.1)
+
+            self.assertEqual(seen, [("Book One", "001.txt", True)])
+
+    def test_aborted_bulk_translation_stops_and_does_not_resume(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seen = []
+
+            def fake_translate(
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+            ) -> dict[str, str]:
+                seen.append((novel, filename, populate_glossary))
+                raise app.AppError("Bulk translation aborted.", 409)
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ):
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [
+                        {"filename": "001.txt", "title": "Chapter 1", "status": "pending"},
+                        {"filename": "002.txt", "title": "Chapter 2", "status": "pending"},
+                    ],
+                )
+
+                deadline = time.time() + 2
+                state = bulk_translate.get_bulk_state("Book One")
+                while state["running"] and time.time() < deadline:
+                    time.sleep(0.02)
+                    state = bulk_translate.get_bulk_state("Book One")
+
+                self.assertFalse(state["running"])
+                self.assertTrue(state["aborted"])
+                self.assertEqual(seen, [("Book One", "001.txt", True)])
+                self.assertEqual([item["status"] for item in state["items"]], ["aborted", "pending"])
+
+                bulk_translate.get_bulk_state("Book One")
+                time.sleep(0.1)
+
+            self.assertEqual(seen, [("Book One", "001.txt", True)])
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -769,6 +852,88 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(log_entries[0]["event"], "translation_parse_error")
             self.assertEqual(log_entries[1]["request"]["messages"][:2], log_entries[0]["request"]["messages"])
             self.assertEqual(log_entries[1]["request"]["messages"][2], {"role": "assistant", "content": "not json"})
+            self.assertEqual(
+                log_entries[0]["response"]["choices"][0]["message"]["content"],
+                "not json",
+            )
+
+    def test_populate_glossary_retries_invalid_json_by_continuing_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book" / "source"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
+            config = root / "translator_config.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            failure_log = root / "deepseek_failures.jsonl"
+            glossary.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "api_key": "secret",
+                        "translation_model": "deepseek-v4-flash",
+                        "glossary_model": "deepseek-v4-pro",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            glossary.write_text("[]", encoding="utf-8")
+            calls = []
+
+            def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
+                calls.append(json.dumps(messages, ensure_ascii=False))
+                if len(calls) < 3:
+                    return {"choices": [{"message": {"content": "not json"}}]}
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "glossary_updates": [
+                                            {
+                                                "source_term": "太玄界",
+                                                "english_term": "Taixuan Realm",
+                                                "category": "place",
+                                                "gender_or_pronoun": "",
+                                            }
+                                        ]
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ), patch.object(
+                settings, "DEEPSEEK_FAILURE_LOG", failure_log
+            ):
+                result = app.populate_glossary_for_chapter("Book", "001_第1章.txt", fake_call)
+
+            self.assertEqual(len(calls), 3)
+            first_messages = json.loads(calls[0])
+            second_messages = json.loads(calls[1])
+            third_messages = json.loads(calls[2])
+            self.assertEqual(second_messages[:2], first_messages)
+            self.assertEqual(second_messages[2], {"role": "assistant", "content": "not json"})
+            self.assertIn("not valid JSON", second_messages[3]["content"])
+            self.assertEqual(third_messages[:4], second_messages)
+            self.assertEqual(third_messages[4], {"role": "assistant", "content": "not json"})
+            self.assertIn("resend the glossary extraction", third_messages[5]["content"])
+            self.assertEqual(result[0]["source_term"], "太玄界")
+            log_entries = [json.loads(line) for line in failure_log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(log_entries), 2)
+            self.assertEqual(log_entries[0]["event"], "glossary_parse_error")
             self.assertEqual(
                 log_entries[0]["response"]["choices"][0]["message"]["content"],
                 "not json",

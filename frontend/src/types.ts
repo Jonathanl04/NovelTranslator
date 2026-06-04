@@ -77,7 +77,7 @@ export type Usage = {
   by_model: Record<Model, UsageBucket>;
 };
 
-export type BulkStatus = "pending" | "translating" | "done" | "failed";
+export type BulkStatus = "pending" | "translating" | "done" | "failed" | "aborted";
 export type BulkMode = "full" | "only" | "name";
 
 export type BulkItem = {
@@ -91,5 +91,6 @@ export type BulkItem = {
 export type BulkTranslationState = {
   novel: string;
   running: boolean;
+  aborted: boolean;
   items: BulkItem[];
 };

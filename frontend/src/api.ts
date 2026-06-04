@@ -74,4 +74,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ novel, items }),
     }),
+  abortBulkTranslation: (novel: string) =>
+    request<BulkTranslationState>("/api/bulk-translate/abort", {
+      method: "POST",
+      body: JSON.stringify({ novel }),
+    }),
 };

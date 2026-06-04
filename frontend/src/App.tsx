@@ -91,6 +91,7 @@ export function App() {
   const [scrapeState, setScrapeState] = useState<ScrapeState>(emptyScrapeState);
   const [manualBusy, setManualBusy] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkAborted, setBulkAborted] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
   const [usage, setUsage] = useState<Usage>(emptyUsage);
@@ -133,11 +134,13 @@ export function App() {
     () => ({
       done: bulkItems.filter((item) => item.status === "done").length,
       failed: bulkItems.filter((item) => item.status === "failed").length,
+      aborted: bulkItems.filter((item) => item.status === "aborted").length,
       pending: bulkItems.filter((item) => item.status === "pending").length,
       translating: bulkItems.filter((item) => item.status === "translating").length,
     }),
     [bulkItems]
   );
+  const bulkQueueActive = !bulkAborted && (bulkRunning || bulkItems.some((item) => item.status === "pending" || item.status === "translating"));
   const bulkItemByFile = useMemo(() => {
     const map = new Map<string, BulkItem>();
     for (const item of bulkItems) {
@@ -205,6 +208,7 @@ export function App() {
     if (!nextNovel) {
       setBulkItems([]);
       setBulkRunning(false);
+      setBulkAborted(false);
       setBulkSelection(new Set());
       previousBulkState.current = null;
       return;
@@ -212,6 +216,7 @@ export function App() {
     const state = await api.bulkTranslation(nextNovel);
     setBulkItems(state.items);
     setBulkRunning(state.running);
+    setBulkAborted(state.aborted);
     setBulkSelection(
       new Set(
         state.items
@@ -221,7 +226,9 @@ export function App() {
       )
     );
     previousBulkState.current = state;
-    if (state.running) {
+    if (state.aborted) {
+      showStatus("Bulk translation aborted.");
+    } else if (state.running) {
       showStatus(describeBulkProgress(state));
     }
   }, [showStatus]);
@@ -429,6 +436,7 @@ export function App() {
           previousBulkState.current = state;
           setBulkItems(state.items);
           setBulkRunning(state.running);
+          setBulkAborted(state.aborted);
           setBulkSelection(
             new Set(
               state.items
@@ -467,9 +475,11 @@ export function App() {
 
           if (queueFinished) {
             showStatus(
-              state.items.some((item) => item.status === "failed")
-                ? "Bulk translation stopped after a failure."
-                : "Bulk translation complete.",
+              state.aborted
+                ? "Bulk translation aborted."
+                : state.items.some((item) => item.status === "failed")
+                  ? "Bulk translation stopped after a failure."
+                  : "Bulk translation complete.",
               state.items.some((item) => item.status === "failed")
             );
           }
@@ -562,6 +572,7 @@ export function App() {
       previousBulkState.current = state;
       setBulkItems(state.items);
       setBulkRunning(state.running);
+      setBulkAborted(state.aborted);
       setBulkSelection(new Set(queue.map((item) => item.filename)));
       showStatus(describeBulkProgress(state));
       if (!state.running) {
@@ -571,6 +582,40 @@ export function App() {
       showStatus(errorMessage(caught), true);
     } finally {
       setManualBusy(false);
+    }
+  }
+
+  async function abortBulkTranslation() {
+    if (!novel || !bulkRunning) return;
+    try {
+      const state = await api.abortBulkTranslation(novel);
+      previousBulkState.current = state;
+      setBulkItems(state.items);
+      setBulkRunning(state.running);
+      setBulkAborted(state.aborted);
+      setBulkSelection(
+        new Set(
+          state.items
+            .filter((item) => item.status === "pending" || item.status === "translating")
+            .filter((item) => item.mode !== "name")
+            .map((item) => item.filename)
+        )
+      );
+      showStatus("Bulk translation aborted.");
+
+      const [nextChapters, nextUsage] = await Promise.all([api.chapters(novel), api.usage()]);
+      setChapters(nextChapters);
+      setUsage(nextUsage);
+      if (state.items.some((item) => item.status === "done" || item.status === "failed" || item.status === "aborted")) {
+        setGlossary(await api.glossary(novel));
+      }
+      if (selectedFile && state.items.some((item) => item.filename === selectedFile && item.status === "done")) {
+        const chapter = await api.chapter(novel, selectedFile);
+        setSource(chapter.source);
+        setTranslated(chapter.translated);
+      }
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
     }
   }
 
@@ -758,6 +803,7 @@ export function App() {
           translationModel={config.translation_model}
           canExport={Boolean(novel) && chapters.length > 0 && chapters.length !== untranslatedCount}
           busy={busy}
+          bulkQueueActive={bulkQueueActive}
           chapters={chapters}
           visibleChapters={visibleChapters}
           search={chapterSearch}
@@ -784,6 +830,7 @@ export function App() {
           onSelectFromCurrent={selectFromCurrent}
           onClear={() => setBulkSelection(new Set())}
           onTranslate={runTranslate}
+          onAbortBulk={abortBulkTranslation}
           onReaderTabChange={setReaderTab}
           onPrevious={() => goToChapter(previousChapter?.filename)}
           onNext={() => goToChapter(nextChapter?.filename)}
@@ -856,6 +903,9 @@ function preferredChapter(novel: string, chapters: Chapter[]) {
 function describeBulkProgress(state: BulkTranslationState) {
   const total = state.items.length;
   const done = state.items.filter((item) => item.status === "done").length;
+  if (state.aborted) {
+    return "Bulk translation aborted.";
+  }
   const failed = state.items.find((item) => item.status === "failed");
   const active = state.items.find((item) => item.status === "translating");
   const pending = state.items.find((item) => item.status === "pending");
