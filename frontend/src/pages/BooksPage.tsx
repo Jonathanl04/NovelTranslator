@@ -77,7 +77,7 @@ export function BooksPage({
                 id="scrape-url"
                 type="url"
                 value={scrapeUrl}
-                placeholder="https://www.69shuba.com/book/77582.htm"
+                placeholder="https://twkan.com/book/92274.html"
                 onChange={(event) => onScrapeUrlChange(event.target.value)}
               />
             </div>
