@@ -19,7 +19,57 @@ def frontend_source() -> str:
 
 
 class TranslatorAppTests(unittest.TestCase):
-    def test_glossary_and_translation_prompts_share_stable_prefix(self) -> None:
+    def test_translation_prompt_only_includes_chapter_glossary_matches(self) -> None:
+        glossary = [
+            {
+                "source_term": "太玄界",
+                "english_term": "Taixuan Realm",
+                "category": "place",
+                "gender_or_pronoun": "",
+            },
+            {
+                "source_term": "陆阳",
+                "english_term": "Lu Yang",
+                "category": "character",
+                "gender_or_pronoun": "male",
+            },
+            {
+                "source_term": "灵根",
+                "english_term": "spiritual root",
+                "category": "cultivation",
+                "gender_or_pronoun": "",
+            },
+            {
+                "source_term": "单身灵根",
+                "english_term": "single-body spiritual root",
+                "category": "cultivation",
+                "gender_or_pronoun": "it",
+            },
+            {
+                "source_term": "青锋剑",
+                "english_term": "Green Edge Sword",
+                "category": "artifact",
+                "gender_or_pronoun": "it",
+            },
+        ]
+
+        translation = app.build_messages(
+            "第1章 太玄界", "陆阳是单身灵根。", glossary
+        )[0]["content"]
+        glossary_messages = app.build_glossary_messages("第1章", "正文", glossary)[0][
+            "content"
+        ]
+
+        self.assertTrue(translation.startswith(app.SHARED_PROMPT_PREFIX))
+        self.assertTrue(glossary_messages.startswith(app.SHARED_PROMPT_PREFIX))
+        self.assertIn("Taixuan Realm", translation)
+        self.assertIn("Lu Yang pronoun=male", translation)
+        self.assertIn("spiritual root", translation)
+        self.assertIn("single-body spiritual root pronoun=it", translation)
+        self.assertNotIn("Green Edge Sword", translation)
+        self.assertIn("Green Edge Sword", glossary_messages)
+
+    def test_translation_prompt_uses_empty_glossary_text_when_no_entries_match(self) -> None:
         glossary = [
             {
                 "source_term": "太玄界",
@@ -30,14 +80,9 @@ class TranslatorAppTests(unittest.TestCase):
         ]
 
         translation = app.build_messages("第1章", "正文", glossary)[0]["content"]
-        glossary_messages = app.build_glossary_messages("第1章", "正文", glossary)[0][
-            "content"
-        ]
 
-        self.assertTrue(translation.startswith(app.SHARED_PROMPT_PREFIX))
-        self.assertTrue(glossary_messages.startswith(app.SHARED_PROMPT_PREFIX))
-        self.assertEqual(translation, glossary_messages)
-        self.assertIn("Taixuan Realm", translation)
+        self.assertIn("No established glossary entries yet.", translation)
+        self.assertNotIn("Taixuan Realm", translation)
 
     def test_glossary_prompt_omits_category_annotation(self) -> None:
         glossary = [

@@ -64,6 +64,18 @@ Established glossary:
 """.strip()
 
 
+def glossary_entries_for_chapter(
+    title: str, body: str, glossary: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    source_text = f"{title}\n{body}"
+    return [
+        entry
+        for entry in glossary
+        if str(entry.get("source_term", "")).strip()
+        and str(entry.get("source_term", "")).strip() in source_text
+    ]
+
+
 def build_messages(title: str, body: str, glossary: list[dict[str, Any]]) -> list[dict[str, str]]:
     user = f"""
 Task: Translate the provided chapter into English.
@@ -94,7 +106,8 @@ Chapter title:
 Chapter body:
 {body}
 """.strip()
-    return [{"role": "system", "content": build_cached_prefix(glossary)}, {"role": "user", "content": user}]
+    chapter_glossary = glossary_entries_for_chapter(title, body, glossary)
+    return [{"role": "system", "content": build_cached_prefix(chapter_glossary)}, {"role": "user", "content": user}]
 
 
 def build_glossary_messages(
