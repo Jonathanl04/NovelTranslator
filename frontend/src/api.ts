@@ -7,6 +7,7 @@ import type {
   GlossaryEntry,
   Model,
   NovelMetadata,
+  QidianAuthState,
   ScrapeState,
   TranslationResult,
   Usage,
@@ -78,5 +79,16 @@ export const api = {
     request<BulkTranslationState>("/api/bulk-translate/abort", {
       method: "POST",
       body: JSON.stringify({ novel }),
+    }),
+  qidianAuth: () => request<QidianAuthState>("/api/qidian-auth"),
+  qidianSetCookies: (cookies: string) =>
+    request<QidianAuthState>("/api/qidian-auth", {
+      method: "POST",
+      body: JSON.stringify({ action: "set_cookies", cookies }),
+    }),
+  qidianLogout: () =>
+    request<QidianAuthState>("/api/qidian-auth", {
+      method: "POST",
+      body: JSON.stringify({ action: "logout" }),
     }),
 };

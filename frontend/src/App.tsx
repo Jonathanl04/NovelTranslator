@@ -16,6 +16,7 @@ import type {
   Config,
   GlossaryEntry,
   NovelMetadata,
+  QidianAuthState,
   ScrapeState,
   Usage,
 } from "./types";
@@ -99,6 +100,7 @@ export function App() {
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
   const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+  const [qidianAuth, setQidianAuth] = useState<QidianAuthState>({ logged_in: false });
   const previousBulkState = useRef<BulkTranslationState | null>(null);
   const handledScrapeResult = useRef("");
   const configRequestVersion = useRef(0);
@@ -339,17 +341,19 @@ export function App() {
 
     async function boot() {
       try {
-        const [nextConfig, nextNovels, nextUsage, nextScrapeState] = await Promise.all([
+        const [nextConfig, nextNovels, nextUsage, nextScrapeState, nextQidianAuth] = await Promise.all([
           api.config(),
           api.novels(),
           api.usage(),
           api.scrapeState(),
+          api.qidianAuth(),
         ]);
         if (!active) return;
         setConfig(nextConfig);
         setNovels(nextNovels);
         setUsage(nextUsage);
         setScrapeState(nextScrapeState);
+        setQidianAuth(nextQidianAuth);
         Promise.all(
           nextNovels.map(async (name) => {
             try {
@@ -384,6 +388,23 @@ export function App() {
     }, 800);
     return () => window.clearInterval(interval);
   }, [scrapeState.running, showStatus]);
+
+  async function saveQidianCookies(cookieStr: string) {
+    try {
+      setQidianAuth(await api.qidianSetCookies(cookieStr));
+      showStatus("Qidian cookies saved.");
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    }
+  }
+
+  async function logoutQidian() {
+    try {
+      setQidianAuth(await api.qidianLogout());
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    }
+  }
 
   useEffect(() => {
     if (scrapeState.stage === "failed" && scrapeState.error) {
@@ -791,6 +812,9 @@ export function App() {
           onScrape={runScrape}
           onUseSourceUrl={useSavedSourceUrl}
           onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
+          qidianAuth={qidianAuth}
+          onQidianSaveCookies={saveQidianCookies}
+          onQidianLogout={logoutQidian}
         />
       ) : page === "workspace" ? (
         <TranslatePage

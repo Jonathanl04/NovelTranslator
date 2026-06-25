@@ -94,3 +94,7 @@ export type BulkTranslationState = {
   aborted: boolean;
   items: BulkItem[];
 };
+
+export type QidianAuthState = {
+  logged_in: boolean;
+};

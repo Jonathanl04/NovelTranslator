@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ArrowDownAZ,
   BookOpen,
@@ -6,13 +7,14 @@ import {
   Clock,
   Download,
   Link,
+  LogOut,
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { NovelMetadata, ScrapeState } from "@/types";
+import type { NovelMetadata, QidianAuthState, ScrapeState } from "@/types";
 import { formatInteger } from "./shared";
 
 export function BooksPage({
@@ -29,6 +31,7 @@ export function BooksPage({
   scrapeStart,
   scrapeEnd,
   scrapeState,
+  qidianAuth,
   onQueryChange,
   onSortChange,
   onPageChange,
@@ -38,6 +41,8 @@ export function BooksPage({
   onScrape,
   onUseSourceUrl,
   onSelect,
+  onQidianSaveCookies,
+  onQidianLogout,
 }: {
   novels: string[];
   allCount: number;
@@ -52,6 +57,7 @@ export function BooksPage({
   scrapeStart: string;
   scrapeEnd: string;
   scrapeState: ScrapeState;
+  qidianAuth: QidianAuthState;
   onQueryChange: (value: string) => void;
   onSortChange: (value: "name" | "recent") => void;
   onPageChange: (page: number) => void;
@@ -61,10 +67,13 @@ export function BooksPage({
   onScrape: () => void;
   onUseSourceUrl: (novelName: string, sourceUrl: string) => void;
   onSelect: (novel: string) => void;
+  onQidianSaveCookies: (cookieStr: string) => void;
+  onQidianLogout: () => void;
 }) {
   const scrapeBusy = scrapeState.running;
   const progressValue =
     scrapeState.total > 0 ? Math.min(100, Math.round((scrapeState.current / scrapeState.total) * 100)) : 0;
+  const isQidianUrl = /^https?:\/\/(www\.)?qidian\.com\//i.test(scrapeUrl);
 
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20">
@@ -106,6 +115,13 @@ export function BooksPage({
               {scrapeBusy ? "Downloading" : "Download"}
             </Button>
           </div>
+          {isQidianUrl && (
+            <QidianLoginPanel
+              auth={qidianAuth}
+              onSaveCookies={onQidianSaveCookies}
+              onLogout={onQidianLogout}
+            />
+          )}
           {(scrapeBusy || scrapeState.stage === "done" || scrapeState.stage === "failed") && (
             <div className="grid gap-1">
               <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -206,6 +222,81 @@ export function BooksPage({
         </div>
       </section>
     </main>
+  );
+}
+
+function QidianLoginPanel({
+  auth,
+  onSaveCookies,
+  onLogout,
+}: {
+  auth: QidianAuthState;
+  onSaveCookies: (cookieStr: string) => void;
+  onLogout: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [cookieStr, setCookieStr] = useState("");
+
+  function handleSave() {
+    onSaveCookies(cookieStr.trim());
+    setCookieStr("");
+    setOpen(false);
+  }
+
+  return (
+    <div className="grid gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium text-muted-foreground">Qidian login</span>
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-xs font-medium",
+            auth.logged_in
+              ? "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300"
+              : "bg-muted text-muted-foreground"
+          )}
+        >
+          {auth.logged_in ? "Logged in" : "Not logged in"}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {auth.logged_in ? (
+            <Button type="button" variant="outline" size="sm" onClick={onLogout}>
+              <LogOut />
+              Log out
+            </Button>
+          ) : (
+            <Button type="button" variant="outline" size="sm" onClick={() => setOpen((v) => !v)}>
+              {open ? "Cancel" : "Paste cookies"}
+            </Button>
+          )}
+        </div>
+      </div>
+      {open && !auth.logged_in && (
+        <div className="grid gap-2">
+          <p className="text-xs text-muted-foreground">
+            Log in to{" "}
+            <strong>qidian.com</strong>{" "}
+            in your browser, then open DevTools → Console and run{" "}
+            <code className="rounded bg-muted px-1 font-mono">document.cookie</code>.
+            Copy the output and paste it below.
+          </p>
+          <textarea
+            className="min-h-20 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+            placeholder="ywguid=...; ywkey=...; ..."
+            value={cookieStr}
+            onChange={(e) => setCookieStr(e.target.value)}
+          />
+          <Button
+            type="button"
+            size="sm"
+            className="w-fit"
+            disabled={!cookieStr.trim()}
+            onClick={handleSave}
+          >
+            Save cookies
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

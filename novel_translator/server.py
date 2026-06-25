@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from scraper import qidian_auth
 from scraper.download_69shuba import download_range as download_69shuba_range
+from scraper.download_qidian import download_range as download_qidian_range
 from scraper.download_twkan import download_range as download_twkan_range
 from scraper.download_uukanshu import download_range as download_uukanshu_range
 
@@ -86,6 +88,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/scrape":
                 self.handle_scrape(method)
+                return
+            if parsed.path == "/api/qidian-auth":
+                self.handle_qidian_auth(method)
                 return
             if method == "GET" and parsed.path == "/api/chapter":
                 query = urllib.parse.parse_qs(parsed.query)
@@ -191,6 +196,27 @@ class Handler(BaseHTTPRequestHandler):
             raise AppError("items must be a list.")
         self.json(start_bulk_translation(novel, items))
 
+    def handle_qidian_auth(self, method: str) -> None:
+        if method == "GET":
+            self.json(qidian_auth.get_state())
+            return
+        if method != "POST":
+            raise AppError("Method not allowed.", 405)
+        data = self.body_json()
+        action = str(data.get("action", ""))
+        if action == "set_cookies":
+            cookie_str = str(data.get("cookies", "")).strip()
+            if not cookie_str:
+                raise AppError("cookies string is required.")
+            try:
+                self.json(qidian_auth.set_cookies_from_string(cookie_str))
+            except ValueError as exc:
+                raise AppError(str(exc)) from exc
+        elif action == "logout":
+            self.json(qidian_auth.clear_login())
+        else:
+            raise AppError("action must be 'set_cookies' or 'logout'.")
+
     def handle_scrape(self, method: str) -> None:
         if method == "GET":
             with scrape_lock:
@@ -218,8 +244,10 @@ class Handler(BaseHTTPRequestHandler):
             downloader = download_uukanshu_range
         elif host in {"twkan.com", "www.twkan.com"}:
             downloader = download_twkan_range
+        elif host in {"qidian.com", "www.qidian.com"}:
+            downloader = download_qidian_range
         else:
-            raise AppError("Supported scraper URLs are 69shuba.com, uukanshu.cc, and twkan.com.")
+            raise AppError("Supported scraper URLs are 69shuba.com, uukanshu.cc, twkan.com, and qidian.com.")
 
         with scrape_lock:
             if scrape_state["running"]:
