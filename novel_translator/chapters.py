@@ -128,13 +128,14 @@ def list_chapters(
     chapters = []
     for path in sorted(novel_dir.glob("*.txt")):
         target = translated_path(novel, path.name, translated_root)
+        translated_exists = target.exists()
         chapters.append(
             {
                 "filename": path.name,
                 "title": chapter_label(path.name, target),
-                "translated": target.exists(),
+                "translated": translated_exists,
                 "source_size": path.stat().st_size,
-                "translated_size": target.stat().st_size if target.exists() else 0,
+                "translated_size": target.stat().st_size if translated_exists else 0,
             }
         )
     return chapters
@@ -144,10 +145,11 @@ def chapter_label(filename: str, translated_file: Path | None = None) -> str:
     prefix = Path(filename).stem.split("_", 1)[0]
     if translated_file and translated_file.exists():
         try:
-            title, _ = split_chapter(translated_file.read_text(encoding="utf-8"))
+            with translated_file.open(encoding="utf-8") as file:
+                title = file.readline().strip()
             if title and not contains_source_language_text(title):
                 return f"{prefix} {title}" if prefix and not title.startswith(prefix) else title
-        except AppError:
+        except OSError:
             pass
     return Path(filename).stem.replace("_", " ", 1)
 
