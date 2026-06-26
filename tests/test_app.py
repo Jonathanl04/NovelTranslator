@@ -441,6 +441,101 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(merged[1]["source_term"], "太玄界")
         self.assertEqual(merged[2]["category"], "ordinary_vocabulary")
 
+    def test_populate_glossary_can_defer_existing_entry_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book" / "source"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001_第1章.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
+            config = root / "translator_config.json"
+            global_glossary = root / "glossary.json"
+            glossary = glossaries / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "api_key": "secret",
+                        "translation_model": "deepseek-v4-flash",
+                        "glossary_model": "deepseek-v4-pro",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            glossary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "source_term": "徐邢",
+                            "english_term": "Xu Xing",
+                            "category": "character",
+                            "gender_or_pronoun": "",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            pending: list[dict[str, str]] = []
+
+            def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
+                self.assertEqual(model, "deepseek-v4-pro")
+                return {
+                    "glossary_updates": [
+                        {
+                            "source_term": "徐邢",
+                            "english_term": "Xu Xing",
+                            "category": "character",
+                            "gender_or_pronoun": "male",
+                        },
+                        {
+                            "source_term": "太玄界",
+                            "english_term": "Taixuan Realm",
+                            "category": "place",
+                            "gender_or_pronoun": "",
+                        },
+                    ]
+                }
+
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ), patch.object(settings, "CONFIG_PATH", config), patch.object(
+                settings, "GLOSSARY_PATH", global_glossary
+            ), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ):
+                result = app.populate_glossary_for_chapter(
+                    "Book",
+                    "001_第1章.txt",
+                    fake_call,
+                    defer_existing_updates=True,
+                    deferred_existing_updates=pending,
+                )
+
+            self.assertEqual([entry["source_term"] for entry in result], ["徐邢", "太玄界"])
+            self.assertEqual(result[0]["gender_or_pronoun"], "")
+            self.assertEqual(result[1]["english_term"], "Taixuan Realm")
+            self.assertEqual([entry["source_term"] for entry in pending], ["徐邢"])
+            self.assertEqual(
+                json.loads(glossary.read_text(encoding="utf-8")),
+                [
+                    {
+                        "source_term": "徐邢",
+                        "english_term": "Xu Xing",
+                        "category": "character",
+                        "gender_or_pronoun": "",
+                    },
+                    {
+                        "source_term": "太玄界",
+                        "english_term": "Taixuan Realm",
+                        "category": "place",
+                        "gender_or_pronoun": "",
+                    },
+                ],
+            )
+
     def test_glossary_prompt_does_not_hardcode_category_options(self) -> None:
         messages = app.build_glossary_messages("第1章", "正文", [])
         user_prompt = messages[1]["content"]
@@ -531,9 +626,23 @@ class TranslatorAppTests(unittest.TestCase):
             seen = []
 
             def fake_translate(
-                novel: str, filename: str, populate_glossary: bool = True, should_abort=None
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+                defer_existing_glossary_updates: bool = False,
+                deferred_existing_glossary_updates=None,
+                **kwargs,
             ) -> dict[str, str]:
-                seen.append((novel, filename, populate_glossary))
+                seen.append(
+                    (
+                        novel,
+                        filename,
+                        populate_glossary,
+                        defer_existing_glossary_updates,
+                        deferred_existing_glossary_updates is not None,
+                    )
+                )
                 return {"filename": filename}
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
@@ -557,8 +666,8 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(
                 seen,
                 [
-                    ("Book One", "001.txt", True),
-                    ("Book One", "002.txt", True),
+                    ("Book One", "001.txt", True, True, True),
+                    ("Book One", "002.txt", True, True, True),
                 ],
             )
             self.assertEqual([item["status"] for item in state["items"]], ["done", "done"])
@@ -575,9 +684,23 @@ class TranslatorAppTests(unittest.TestCase):
             seen = []
 
             def fake_translate(
-                novel: str, filename: str, populate_glossary: bool = True, should_abort=None
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+                defer_existing_glossary_updates: bool = False,
+                deferred_existing_glossary_updates=None,
+                **kwargs,
             ) -> dict[str, str]:
-                seen.append((novel, filename, populate_glossary))
+                seen.append(
+                    (
+                        novel,
+                        filename,
+                        populate_glossary,
+                        defer_existing_glossary_updates,
+                        deferred_existing_glossary_updates is not None,
+                    )
+                )
                 raise app.AppError("DeepSeek message was not valid glossary JSON.", 502)
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
@@ -599,13 +722,209 @@ class TranslatorAppTests(unittest.TestCase):
 
                 self.assertFalse(state["running"])
                 self.assertTrue(state["aborted"])
-                self.assertEqual(seen, [("Book One", "001.txt", True)])
+                self.assertEqual(seen, [("Book One", "001.txt", True, True, True)])
                 self.assertEqual([item["status"] for item in state["items"]], ["failed", "pending"])
 
                 bulk_translate.get_bulk_state("Book One")
                 time.sleep(0.1)
 
-            self.assertEqual(seen, [("Book One", "001.txt", True)])
+            self.assertEqual(seen, [("Book One", "001.txt", True, True, True)])
+
+    def test_bulk_translation_flushes_deferred_glossary_updates_at_end(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book One" / "source"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
+            glossary = glossaries / "Book One" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
+            glossary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "source_term": "徐邢",
+                            "english_term": "Xu Xing",
+                            "category": "character",
+                            "gender_or_pronoun": "",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            seen = []
+
+            def fake_translate(
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+                defer_existing_glossary_updates: bool = False,
+                deferred_existing_glossary_updates=None,
+                **kwargs,
+            ) -> dict[str, str]:
+                seen.append(
+                    (
+                        novel,
+                        filename,
+                        populate_glossary,
+                        defer_existing_glossary_updates,
+                        deferred_existing_glossary_updates is not None,
+                    )
+                )
+                self.assertTrue(defer_existing_glossary_updates)
+                self.assertIsNotNone(deferred_existing_glossary_updates)
+                deferred_existing_glossary_updates.append(
+                    {
+                        "source_term": "徐邢",
+                        "english_term": "Xu Xing",
+                        "category": "character",
+                        "gender_or_pronoun": "male",
+                    }
+                )
+                app.save_glossary(
+                    [
+                        *app.load_glossary(novel),
+                        {
+                            "source_term": "太玄界",
+                            "english_term": "Taixuan Realm",
+                            "category": "place",
+                            "gender_or_pronoun": "",
+                        },
+                    ],
+                    novel,
+                )
+                return {"filename": filename}
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                settings, "OUTPUT_ROOT", output
+            ), patch.object(settings, "TRANSLATED_ROOT", translated), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ):
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [{"filename": "001.txt", "title": "Chapter 1", "status": "pending"}],
+                )
+
+                deadline = time.time() + 2
+                state = bulk_translate.get_bulk_state("Book One")
+                while state["running"] and time.time() < deadline:
+                    time.sleep(0.02)
+                    state = bulk_translate.get_bulk_state("Book One")
+
+            self.assertFalse(state["running"])
+            self.assertEqual(seen, [("Book One", "001.txt", True, True, True)])
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                current_glossary = json.loads(glossary.read_text(encoding="utf-8"))
+                if current_glossary[0]["gender_or_pronoun"] == "male":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(
+                json.loads(glossary.read_text(encoding="utf-8")),
+                [
+                    {
+                        "source_term": "徐邢",
+                        "english_term": "Xu Xing",
+                        "category": "character",
+                        "gender_or_pronoun": "male",
+                    },
+                    {
+                        "source_term": "太玄界",
+                        "english_term": "Taixuan Realm",
+                        "category": "place",
+                        "gender_or_pronoun": "",
+                    },
+                ],
+            )
+
+    def test_failed_bulk_translation_still_flushes_deferred_glossary_updates(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossaries = root / "glossaries"
+            novel_dir = output / "Book One" / "source"
+            novel_dir.mkdir(parents=True)
+            (novel_dir / "001.txt").write_text("第1章\n\n太玄界。", encoding="utf-8")
+            glossary = glossaries / "Book One" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
+            glossary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "source_term": "徐邢",
+                            "english_term": "Xu Xing",
+                            "category": "character",
+                            "gender_or_pronoun": "",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_translate(
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+                defer_existing_glossary_updates: bool = False,
+                deferred_existing_glossary_updates=None,
+                **kwargs,
+            ) -> dict[str, str]:
+                self.assertTrue(defer_existing_glossary_updates)
+                self.assertIsNotNone(deferred_existing_glossary_updates)
+                deferred_existing_glossary_updates.append(
+                    {
+                        "source_term": "徐邢",
+                        "english_term": "Xu Xing",
+                        "category": "character",
+                        "gender_or_pronoun": "male",
+                    }
+                )
+                raise app.AppError("DeepSeek message was not valid glossary JSON.", 502)
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                settings, "OUTPUT_ROOT", output
+            ), patch.object(settings, "TRANSLATED_ROOT", translated), patch.object(
+                settings, "GLOSSARY_ROOT", glossaries
+            ), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ):
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [{"filename": "001.txt", "title": "Chapter 1", "status": "pending"}],
+                )
+
+                deadline = time.time() + 2
+                state = bulk_translate.get_bulk_state("Book One")
+                while state["running"] and time.time() < deadline:
+                    time.sleep(0.02)
+                    state = bulk_translate.get_bulk_state("Book One")
+
+            self.assertFalse(state["running"])
+            self.assertTrue(state["aborted"])
+            self.assertEqual(
+                json.loads(glossary.read_text(encoding="utf-8")),
+                [
+                    {
+                        "source_term": "徐邢",
+                        "english_term": "Xu Xing",
+                        "category": "character",
+                        "gender_or_pronoun": "male",
+                    }
+                ],
+            )
 
     def test_aborted_bulk_translation_stops_and_does_not_resume(self) -> None:
         from novel_translator import bulk_translate
@@ -619,8 +938,19 @@ class TranslatorAppTests(unittest.TestCase):
                 filename: str,
                 populate_glossary: bool = True,
                 should_abort=None,
+                defer_existing_glossary_updates: bool = False,
+                deferred_existing_glossary_updates=None,
+                **kwargs,
             ) -> dict[str, str]:
-                seen.append((novel, filename, populate_glossary))
+                seen.append(
+                    (
+                        novel,
+                        filename,
+                        populate_glossary,
+                        defer_existing_glossary_updates,
+                        deferred_existing_glossary_updates is not None,
+                    )
+                )
                 raise app.AppError("Bulk translation aborted.", 409)
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
@@ -642,13 +972,13 @@ class TranslatorAppTests(unittest.TestCase):
 
                 self.assertFalse(state["running"])
                 self.assertTrue(state["aborted"])
-                self.assertEqual(seen, [("Book One", "001.txt", True)])
+                self.assertEqual(seen, [("Book One", "001.txt", True, True, True)])
                 self.assertEqual([item["status"] for item in state["items"]], ["aborted", "pending"])
 
                 bulk_translate.get_bulk_state("Book One")
                 time.sleep(0.1)
 
-            self.assertEqual(seen, [("Book One", "001.txt", True)])
+            self.assertEqual(seen, [("Book One", "001.txt", True, True, True)])
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

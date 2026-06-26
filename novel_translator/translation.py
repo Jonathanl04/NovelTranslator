@@ -398,6 +398,8 @@ def populate_glossary_for_chapter(
     filename: str,
     call_api: Any = call_deepseek,
     should_abort: Callable[[], bool] | None = None,
+    defer_existing_updates: bool = False,
+    deferred_existing_updates: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     config = load_config()
     if not config["api_key"]:
@@ -434,7 +436,26 @@ def populate_glossary_for_chapter(
         raise AppError("Bulk translation aborted.", 409)
 
     with state_lock:
-        merged = merge_glossary_entries(load_glossary(novel), updates)
+        current_glossary = load_glossary(novel)
+        if defer_existing_updates:
+            existing_sources = {
+                str(entry.get("source_term", "")).strip()
+                for entry in current_glossary
+                if str(entry.get("source_term", "")).strip()
+            }
+            new_updates = []
+            existing_updates = []
+            for update in updates:
+                source_term = str(update.get("source_term", "")).strip()
+                if source_term and source_term in existing_sources:
+                    existing_updates.append(update)
+                else:
+                    new_updates.append(update)
+            merged = merge_glossary_entries(current_glossary, new_updates)
+            if deferred_existing_updates is not None:
+                deferred_existing_updates.extend(existing_updates)
+        else:
+            merged = merge_glossary_entries(current_glossary, updates)
         write_json(glossary_path(novel), merged)
     return merged
 
@@ -445,6 +466,8 @@ def translate_chapter(
     call_api: Any = call_deepseek,
     populate_glossary: bool = True,
     should_abort: Callable[[], bool] | None = None,
+    defer_existing_glossary_updates: bool = False,
+    deferred_existing_glossary_updates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
     if not config["api_key"]:
@@ -454,7 +477,14 @@ def translate_chapter(
     title, body = split_chapter(original)
 
     glossary = (
-        populate_glossary_for_chapter(novel, filename, call_api, should_abort=should_abort)
+        populate_glossary_for_chapter(
+            novel,
+            filename,
+            call_api,
+            should_abort=should_abort,
+            defer_existing_updates=defer_existing_glossary_updates,
+            deferred_existing_updates=deferred_existing_glossary_updates,
+        )
         if populate_glossary
         else load_glossary(novel)
     )

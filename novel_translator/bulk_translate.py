@@ -6,6 +6,7 @@ from typing import Any
 from . import settings
 from .config import safe_file_stem
 from .errors import AppError
+from .glossary import glossary_path, load_glossary, merge_glossary_entries
 from .json_store import read_json, write_json
 from .novel_names import ensure_translated_novel_name, needs_translated_novel_name
 from .translation import translate_chapter
@@ -209,6 +210,7 @@ def _start_worker(novel: str) -> None:
 
 
 def _process_bulk_translation_queue(novel: str) -> None:
+    pending_existing_glossary_updates: list[dict[str, Any]] = []
     try:
         while True:
             with _bulk_lock:
@@ -224,7 +226,7 @@ def _process_bulk_translation_queue(novel: str) -> None:
                 if current is None:
                     state["running"] = False
                     save_bulk_state(novel, state)
-                    return
+                    break
                 for item in state["items"]:
                     if item["filename"] == current["filename"]:
                         item["status"] = "translating"
@@ -248,6 +250,10 @@ def _process_bulk_translation_queue(novel: str) -> None:
                         current["filename"],
                         populate_glossary=current["mode"] == "full",
                         should_abort=lambda: is_bulk_translation_aborted(novel),
+                        defer_existing_glossary_updates=current["mode"] == "full",
+                        deferred_existing_glossary_updates=(
+                            pending_existing_glossary_updates if current["mode"] == "full" else None
+                        ),
                     )
             except Exception as exc:
                 with _bulk_lock:
@@ -275,6 +281,10 @@ def _process_bulk_translation_queue(novel: str) -> None:
                         break
                 save_bulk_state(novel, state)
     finally:
+        if pending_existing_glossary_updates:
+            with _bulk_lock:
+                merged = merge_glossary_entries(load_glossary(novel), pending_existing_glossary_updates)
+                write_json(glossary_path(novel), merged)
         with _bulk_lock:
             worker = _bulk_workers.get(novel)
             if worker is not None and worker is _bulk_workers.get(novel):
