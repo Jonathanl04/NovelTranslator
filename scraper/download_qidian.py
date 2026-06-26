@@ -20,6 +20,10 @@ OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", DATA_ROOT))
 ProgressCallback = Callable[[dict[str, object]], None]
 
 
+class ChapterAccessError(RuntimeError):
+    """Raised when a chapter is locked or requires VIP/subscription access."""
+
+
 def infer_book_id(url: str) -> str:
     parsed = urlparse(url)
     netloc = parsed.netloc.lower()
@@ -62,8 +66,8 @@ def _page_fetch(ctx, url: str, wait_selector: str | None = None, wait_ms: int = 
         page.close()
 
 
-def _fetch_catalog(ctx, book_id: str) -> list[tuple[str, str]]:
-    """Returns list of (chapter_id, title) in catalog order."""
+def _fetch_catalog(ctx, book_id: str) -> list[tuple[str, str, bool]]:
+    """Returns list of (chapter_id, title, is_locked) in catalog order."""
     page = ctx.new_page()
     try:
         page.goto(f"https://www.qidian.com/book/{book_id}/", wait_until="domcontentloaded", timeout=60_000)
@@ -75,7 +79,7 @@ def _fetch_catalog(ctx, book_id: str) -> list[tuple[str, str]]:
                 csrf_token = cookie["value"]
                 break
 
-        chapters: list[tuple[str, str]] = []
+        chapters: list[tuple[str, str, bool]] = []
 
         if csrf_token:
             result = page.evaluate(
@@ -97,7 +101,11 @@ def _fetch_catalog(ctx, book_id: str) -> list[tuple[str, str]]:
                             chapter_id = str(ch.get("id", ""))
                             title = ch.get("cN", "") or ch.get("name", "")
                             if chapter_id and title:
-                                chapters.append((chapter_id, title))
+                                # cv=1 means VIP chapter; isAuth=1 means user has access
+                                is_vip = bool(ch.get("cv", 0))
+                                is_auth = bool(ch.get("isAuth", 0) or ch.get("isAudition", 0))
+                                is_locked = is_vip and not is_auth
+                                chapters.append((chapter_id, title, is_locked))
             except Exception:
                 pass
 
@@ -112,7 +120,8 @@ def _fetch_catalog(ctx, book_id: str) -> list[tuple[str, str]]:
                     cid = m.group(1)
                     if cid not in seen:
                         seen.add(cid)
-                        chapters.append((cid, anchor.get_text(strip=True)))
+                        # HTML fallback can't determine lock status
+                        chapters.append((cid, anchor.get_text(strip=True), False))
 
         return chapters
     finally:
@@ -152,8 +161,44 @@ def extract_book_info(html: str) -> tuple[str, str | None]:
     return title, cover_url
 
 
+def _assert_chapter_accessible(soup: BeautifulSoup, fallback_title: str) -> None:
+    """Raise ChapterAccessError if the page shows a VIP/lock gate."""
+    # Explicit lock/auth gate elements Qidian renders for inaccessible chapters
+    lock_selectors = [
+        ".chapter-authenticate",
+        ".chapter-authenticate-tips",
+        ".chapter-lock",
+        ".lock-tips",
+        ".j_locked",
+        ".nologin-tips",
+        ".no-auth-tips",
+    ]
+    for sel in lock_selectors:
+        if soup.select_one(sel):
+            raise ChapterAccessError(
+                f"Chapter '{fallback_title}' is locked – VIP or subscription required."
+            )
+
+    # Check embedded Next.js page data for VIP/auth flags
+    next_data_tag = soup.find("script", id="__NEXT_DATA__")
+    if next_data_tag and next_data_tag.string:
+        try:
+            data = json.loads(next_data_tag.string)
+            chapter_info = (
+                data.get("props", {}).get("pageProps", {}).get("chapterInfo", {})
+            )
+            if chapter_info.get("isVip") and not chapter_info.get("isAuth"):
+                raise ChapterAccessError(
+                    f"Chapter '{fallback_title}' requires VIP access."
+                )
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            pass
+
+
 def extract_chapter_text(html: str, fallback_title: str) -> tuple[str, str]:
     soup = BeautifulSoup(html, "html.parser")
+
+    _assert_chapter_accessible(soup, fallback_title)
 
     # The print div contains the canonical title and content
     print_div = soup.select_one(".chapter-wrapper .relative .print")
@@ -265,13 +310,21 @@ def download_range(
                 raise RuntimeError("No chapters found. The book catalog may not be accessible.")
 
             selected = [
-                (i, cid, ctitle)
-                for i, (cid, ctitle) in enumerate(all_chapters, 1)
+                (i, cid, ctitle, locked)
+                for i, (cid, ctitle, locked) in enumerate(all_chapters, 1)
                 if start <= i <= end
             ]
             if not selected:
                 raise RuntimeError(
                     f"No chapters in range {start}-{end}. Book has {len(all_chapters)} chapters total."
+                )
+
+            locked_chapters = [(i, ctitle) for i, _, ctitle, locked in selected if locked]
+            if locked_chapters:
+                names = ", ".join(f"#{i} {t}" for i, t in locked_chapters[:5])
+                extra = f" (and {len(locked_chapters) - 5} more)" if len(locked_chapters) > 5 else ""
+                raise ChapterAccessError(
+                    f"{len(locked_chapters)} chapter(s) in the requested range require VIP access: {names}{extra}"
                 )
 
             book_output_dir = output_root / book_name / "source"
@@ -292,7 +345,7 @@ def download_range(
             download_cover(cover_url, book_output_dir)
 
             files: list[str] = []
-            for idx, (chapter_number, chapter_id, fallback_title) in enumerate(selected, 1):
+            for idx, (chapter_number, chapter_id, fallback_title, _locked) in enumerate(selected, 1):
                 chapter_url = f"https://www.qidian.com/chapter/{book_id}/{chapter_id}/"
 
                 if progress:
