@@ -16,7 +16,7 @@ if (-not $SkipBuild) {
     Push-Location $Frontend
     try {
         if (-not (Test-Path -LiteralPath "node_modules")) {
-            npm install
+            npm ci
         }
         npm run build
     }
