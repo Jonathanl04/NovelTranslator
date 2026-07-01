@@ -371,14 +371,70 @@ class TranslatorAppTests(unittest.TestCase):
         ):
             saved = app.save_config(
                 {
-                    "api_key": "secret",
+                    "openrouter_api_key": "secret",
                     "translation_model": "mimo-v2.5",
                     "glossary_model": "mimo-v2.5-pro",
                 }
             )
 
+        self.assertEqual(saved["openrouter_api_key"], "secret")
         self.assertEqual(saved["translation_model"], "mimo-v2.5")
         self.assertEqual(saved["glossary_model"], "mimo-v2.5-pro")
+
+    def test_load_config_migrates_legacy_api_key_to_openrouter_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            settings.CONFIG_PATH.write_text(
+                json.dumps({"api_key": "legacy-secret"}), encoding="utf-8"
+            )
+            loaded = app.load_config()
+
+        self.assertEqual(loaded["openrouter_api_key"], "legacy-secret")
+
+    def test_save_config_preserves_openrouter_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            app.save_config(
+                {
+                    "openrouter_api_key": "openrouter-secret",
+                    "translation_model": "deepseek-v4-flash",
+                    "glossary_model": "deepseek-v4-flash",
+                }
+            )
+            saved = app.save_config(
+                {
+                    "keep_existing_openrouter_key": True,
+                    "translation_model": "deepseek-v4-pro",
+                    "glossary_model": "mimo-v2.5",
+                }
+            )
+
+        self.assertEqual(saved["openrouter_api_key"], "openrouter-secret")
+        self.assertEqual(saved["translation_model"], "deepseek-v4-pro")
+        self.assertEqual(saved["glossary_model"], "mimo-v2.5")
+
+    def test_save_config_preserves_omitted_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            app.save_config(
+                {
+                    "openrouter_api_key": "openrouter-secret",
+                    "translation_model": "deepseek-v4-flash",
+                    "glossary_model": "deepseek-v4-flash",
+                }
+            )
+            saved = app.save_config(
+                {
+                    "translation_model": "mimo-v2.5-pro",
+                    "glossary_model": "deepseek-v4-pro",
+                }
+            )
+
+        self.assertEqual(saved["openrouter_api_key"], "openrouter-secret")
+        self.assertEqual(saved["translation_model"], "mimo-v2.5-pro")
 
     def test_parse_translation_response_rejects_untranslated_chinese(self) -> None:
         payload = {
@@ -603,12 +659,24 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("/api/bulk-translate", api_source)
         self.assertIn("/api/bulk-translate", server_source)
 
-    def test_model_select_changes_are_saved_immediately(self) -> None:
+    def test_settings_page_owns_key_and_models(self) -> None:
+        root = Path(__file__).resolve().parents[1]
         app_source = frontend_source()
+        translate_source = (root / "frontend" / "src" / "pages" / "TranslatePage.tsx").read_text(
+            encoding="utf-8"
+        )
+        glossary_source = (root / "frontend" / "src" / "pages" / "GlossaryPage.tsx").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("onConfigChange({ glossary_model })", app_source)
-        self.assertIn("onConfigChange({ translation_model })", app_source)
-        self.assertIn("keep_existing_key: true", app_source)
+        self.assertIn('pathname === "/settings"', app_source)
+        self.assertIn("SettingsPage", app_source)
+        self.assertIn("openrouter_api_key", app_source)
+        self.assertNotIn("nvidia_api_key", app_source)
+        self.assertNotIn("translation_provider", app_source)
+        self.assertNotIn("glossary_provider", app_source)
+        self.assertNotIn("ModelSelect", translate_source)
+        self.assertNotIn("OpenRouter API key", glossary_source)
 
     def test_single_translation_uses_persisted_queue_and_progress_status(self) -> None:
         app_source = frontend_source()

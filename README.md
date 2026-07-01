@@ -83,14 +83,15 @@ docker compose run --rm novel-translator python scraper/download_uukanshu.py htt
 docker compose run --rm novel-translator python scraper/download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
 ```
 
-## Model Settings
+## Settings
 
-The UI has two model selectors:
+Use the Settings page to configure:
 
-- `Glossary model`: used for extracting novel terms before translation.
-- `Translation model`: used for translating the chapter.
+- OpenRouter API key
+- Glossary model
+- Translation model
 
-Requests use the OpenRouter chat completions API. Configure an OpenRouter API key in settings.
+Requests use the OpenRouter chat completions API.
 
 Defaults:
 

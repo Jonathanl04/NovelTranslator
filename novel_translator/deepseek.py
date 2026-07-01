@@ -23,11 +23,11 @@ def call_deepseek(
     payload = {
         "model": settings.MODEL_API_IDS.get(model, model),
         "messages": messages,
-        "thinking": {"type": "disabled"},
-        "reasoning": {"effort": "none", "exclude": True},
         "temperature": 1,
         "stream": False,
         "response_format": {"type": "json_object"},
+        "thinking": {"type": "disabled"},
+        "reasoning": {"effort": "none", "exclude": True},
     }
     if provider:
         payload["provider"] = {

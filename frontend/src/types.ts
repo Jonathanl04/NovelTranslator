@@ -1,8 +1,8 @@
 export type Model = "deepseek-v4-flash" | "deepseek-v4-pro" | "mimo-v2.5" | "mimo-v2.5-pro";
 
 export type Config = {
-  has_api_key: boolean;
-  api_key_mask: string;
+  has_openrouter_api_key: boolean;
+  openrouter_api_key_mask: string;
   translation_model: Model;
   glossary_model: Model;
 };

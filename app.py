@@ -44,6 +44,7 @@ from novel_translator.settings import (
     GLOSSARY_PATH,
     GLOSSARY_ROOT,
     MODELS,
+    OPENROUTER_URL,
     OUTPUT_ROOT,
     ROOT,
     TRANSLATED_ROOT,

@@ -16,17 +16,19 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEEPSEEK_URL = OPENROUTER_URL
 DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash"
 DEFAULT_GLOSSARY_MODEL = "deepseek-v4-flash"
-MODEL_API_IDS = {
+OPENROUTER_MODEL_API_IDS = {
     "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "deepseek-v4-pro": "deepseek/deepseek-v4-pro",
     "mimo-v2.5": "xiaomi/mimo-v2.5",
     "mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro",
 }
-MODEL_PROVIDER_IDS = {
+OPENROUTER_MODEL_PROVIDER_IDS = {
     "deepseek-v4-flash": "deepseek",
     "deepseek-v4-pro": "deepseek",
     "mimo-v2.5": "xiaomi",
     "mimo-v2.5-pro": "xiaomi",
 }
+MODEL_API_IDS = OPENROUTER_MODEL_API_IDS
+MODEL_PROVIDER_IDS = OPENROUTER_MODEL_PROVIDER_IDS
 MODELS = set(MODEL_API_IDS)
 ALLOWED_GENDERS = {"", "male", "female", "it"}

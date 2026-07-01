@@ -163,6 +163,15 @@ Do not include explanations or Markdown.
     ]
 
 
+def configured_api_call(
+    call_api: Any,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+) -> dict[str, Any]:
+    return call_api(api_key, model, messages)
+
+
 def deepseek_request_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "model": model,
@@ -402,7 +411,8 @@ def populate_glossary_for_chapter(
     deferred_existing_updates: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     config = load_config()
-    if not config["api_key"]:
+    api_key = config["openrouter_api_key"]
+    if not api_key:
         raise AppError("OpenRouter API key is not configured.")
 
     original = source_path(novel, filename).read_text(encoding="utf-8")
@@ -419,7 +429,9 @@ def populate_glossary_for_chapter(
         for retry_index in range(TRANSLATION_JSON_RETRIES + 1):
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
-            api_response = call_api(config["api_key"], config["glossary_model"], retry_messages)
+            api_response = configured_api_call(
+                call_api, api_key, config["glossary_model"], retry_messages
+            )
             try:
                 updates = parse_glossary_response(api_response)
                 break
@@ -470,7 +482,8 @@ def translate_chapter(
     deferred_existing_glossary_updates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
-    if not config["api_key"]:
+    api_key = config["openrouter_api_key"]
+    if not api_key:
         raise AppError("OpenRouter API key is not configured.")
 
     original = source_path(novel, filename).read_text(encoding="utf-8")
@@ -495,8 +508,8 @@ def translate_chapter(
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
             try:
-                api_response = call_api(
-                    config["api_key"], config["translation_model"], retry_messages
+                api_response = configured_api_call(
+                    call_api, api_key, config["translation_model"], retry_messages
                 )
             except AppError as exc:
                 if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
@@ -526,8 +539,9 @@ def translate_chapter(
             raise
         draft_json = response_message_content(api_response)
         try:
-            fragment_response = call_api(
-                config["api_key"],
+            fragment_response = configured_api_call(
+                call_api,
+                api_key,
                 config["translation_model"],
                 build_fragment_repair_messages(retry_messages, draft_json),
             )
@@ -547,8 +561,8 @@ def translate_chapter(
             repair_messages = build_repair_messages(title, body, draft_json)
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
-            repair_response = call_api(
-                config["api_key"], config["translation_model"], repair_messages
+            repair_response = configured_api_call(
+                call_api, api_key, config["translation_model"], repair_messages
             )
             try:
                 parsed = parse_translation_response(repair_response)

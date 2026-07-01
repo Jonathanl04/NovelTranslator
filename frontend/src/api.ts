@@ -30,8 +30,8 @@ export const api = {
   usage: () => request<Usage>("/api/usage"),
   resetUsage: () => request<Usage>("/api/usage", { method: "POST" }),
   saveConfig: (payload: {
-    api_key?: string;
-    keep_existing_key: boolean;
+    openrouter_api_key?: string;
+    keep_existing_openrouter_key: boolean;
     translation_model: Model;
     glossary_model: Model;
   }) => request<Config>("/api/config", { method: "POST", body: JSON.stringify(payload) }),

@@ -148,12 +148,14 @@ class Handler(BaseHTTPRequestHandler):
         data = self.body_json()
         if data.get("keep_existing_key"):
             current = load_config()
-            data["api_key"] = current["api_key"]
+            data["openrouter_api_key"] = current["openrouter_api_key"]
+        if data.get("keep_existing_openrouter_key"):
+            data["openrouter_api_key"] = load_config()["openrouter_api_key"]
         saved = save_config(data)
         self.json(
             {
-                "has_api_key": bool(saved["api_key"]),
-                "api_key_mask": mask_key(saved["api_key"]),
+                "has_openrouter_api_key": bool(saved["openrouter_api_key"]),
+                "openrouter_api_key_mask": mask_key(saved["openrouter_api_key"]),
                 "translation_model": saved["translation_model"],
                 "glossary_model": saved["glossary_model"],
             }

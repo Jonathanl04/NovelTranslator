@@ -29,8 +29,8 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { BulkItem, Chapter, Config, Model, NovelMetadata } from "@/types";
-import { formatInteger, ModelSelect } from "./shared";
+import type { BulkItem, Chapter, NovelMetadata } from "@/types";
+import { formatInteger } from "./shared";
 
 export type ReaderTab = "raw" | "translated";
 
@@ -40,8 +40,6 @@ export function TranslatePage({
   chapterCount,
   translatedCount,
   queuedCount,
-  glossaryModel,
-  translationModel,
   canExport,
   busy,
   bulkQueueActive,
@@ -63,7 +61,6 @@ export function TranslatePage({
   translated,
   onChooseBook,
   onExport,
-  onModelChange,
   onSearchChange,
   onOpen,
   onToggle,
@@ -81,8 +78,6 @@ export function TranslatePage({
   chapterCount: number;
   translatedCount: number;
   queuedCount: number;
-  glossaryModel: Model;
-  translationModel: Model;
   canExport: boolean;
   busy: boolean;
   bulkQueueActive: boolean;
@@ -104,7 +99,6 @@ export function TranslatePage({
   translated: string;
   onChooseBook: () => void;
   onExport: () => void;
-  onModelChange: (patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) => void;
   onSearchChange: (value: string) => void;
   onOpen: (filename: string) => void;
   onToggle: (filename: string, checked: boolean) => void;
@@ -126,13 +120,10 @@ export function TranslatePage({
           chapterCount={chapterCount}
           translatedCount={translatedCount}
           queuedCount={queuedCount}
-          glossaryModel={glossaryModel}
-          translationModel={translationModel}
           canExport={canExport}
           busy={busy}
           onChooseBook={onChooseBook}
           onExport={onExport}
-          onModelChange={onModelChange}
         />
 
         <ChapterPanel
@@ -192,26 +183,20 @@ function WorkspaceHeader({
   chapterCount,
   translatedCount,
   queuedCount,
-  glossaryModel,
-  translationModel,
   canExport,
   busy,
   onChooseBook,
   onExport,
-  onModelChange,
 }: {
   displayName: string;
   metadata: NovelMetadata | null;
   chapterCount: number;
   translatedCount: number;
   queuedCount: number;
-  glossaryModel: Model;
-  translationModel: Model;
   canExport: boolean;
   busy: boolean;
   onChooseBook: () => void;
   onExport: () => void;
-  onModelChange: (patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) => void;
 }) {
   return (
     <section className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-card p-3">
@@ -241,20 +226,6 @@ function WorkspaceHeader({
             Export EPUB
           </Button>
         </div>
-      </div>
-      <div className="grid gap-2 md:grid-cols-2">
-        <ModelSelect
-          id="glossary-model"
-          label="Glossary model"
-          value={glossaryModel}
-          onChange={(glossary_model) => onModelChange({ glossary_model })}
-        />
-        <ModelSelect
-          id="translation-model"
-          label="Translation model"
-          value={translationModel}
-          onChange={(translation_model) => onModelChange({ translation_model })}
-        />
       </div>
     </section>
   );

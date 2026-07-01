@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Library,
   Moon,
+  Settings as SettingsIcon,
   Sun,
   WandSparkles,
 } from "lucide-react";
@@ -24,19 +25,20 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { BooksPage } from "@/pages/BooksPage";
 import { GlossaryPage } from "@/pages/GlossaryPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { TranslatePage, type ReaderTab } from "@/pages/TranslatePage";
 import { emptyUsageBucket } from "@/pages/shared";
 
 const SELECTED_CHAPTER_STORAGE_KEY = "novel-translator:selected-chapter";
 const SELECTED_NOVEL_STORAGE_KEY = "novel-translator:selected-novel";
 
-type RoutePage = "library" | "workspace" | "glossary";
+type RoutePage = "library" | "workspace" | "glossary" | "settings";
 
 const BOOKS_PER_PAGE = 12;
 
 const emptyConfig: Config = {
-  has_api_key: false,
-  api_key_mask: "",
+  has_openrouter_api_key: false,
+  openrouter_api_key_mask: "",
   translation_model: "deepseek-v4-flash",
   glossary_model: "deepseek-v4-flash",
 };
@@ -70,7 +72,7 @@ export function App() {
   const routeNovel = searchParams.get("book") || "";
   const routeChapter = searchParams.get("chapter") || "";
   const [config, setConfig] = useState<Config>(emptyConfig);
-  const [apiKey, setApiKey] = useState("");
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [novels, setNovels] = useState<string[]>([]);
   const [novelMetadata, setNovelMetadata] = useState<NovelMetadata | null>(null);
   const [novelMetadataByName, setNovelMetadataByName] = useState<Record<string, NovelMetadata>>({});
@@ -516,8 +518,8 @@ export function App() {
     try {
       const current = await api.config();
       const saved = await api.saveConfig({
-        api_key: apiKey.trim() || undefined,
-        keep_existing_key: !apiKey.trim() && current.has_api_key,
+        openrouter_api_key: openrouterApiKey.trim() || undefined,
+        keep_existing_openrouter_key: !openrouterApiKey.trim() && current.has_openrouter_api_key,
         translation_model: config.translation_model,
         glossary_model: config.glossary_model,
       });
@@ -525,41 +527,15 @@ export function App() {
         return;
       }
       setConfig(saved);
-      setApiKey("");
-      showStatus("Config saved.");
+      setOpenrouterApiKey("");
+      showStatus("Settings saved.");
     } catch (caught) {
       showStatus(errorMessage(caught), true);
     }
   }
 
-  function updateConfigModels(patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) {
-    const previous = {
-      translation_model: config.translation_model,
-      glossary_model: config.glossary_model,
-    };
-    const nextConfig = { ...config, ...patch };
-    const requestVersion = ++configRequestVersion.current;
-    setConfig(nextConfig);
-    void api
-      .saveConfig({
-        keep_existing_key: true,
-        translation_model: nextConfig.translation_model,
-        glossary_model: nextConfig.glossary_model,
-      })
-      .then((saved) => {
-        if (requestVersion !== configRequestVersion.current) {
-          return;
-        }
-        setConfig((current) => ({ ...current, ...saved }));
-        showStatus("Model saved.");
-      })
-      .catch((caught) => {
-        if (requestVersion !== configRequestVersion.current) {
-          return;
-        }
-        setConfig((current) => ({ ...current, ...previous }));
-        showStatus(errorMessage(caught), true);
-      });
+  function updateConfig(patch: Partial<Config>) {
+    setConfig((current) => ({ ...current, ...patch }));
   }
 
   async function runTranslate(mode: "full" | "only") {
@@ -771,6 +747,16 @@ export function App() {
             <ClipboardList />
             Glossary
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={page === "settings" ? "secondary" : "ghost"}
+            className={cn("relative", page === "settings" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
+            onClick={() => navigate("/settings")}
+          >
+            <SettingsIcon />
+            Settings
+          </Button>
         </nav>
         <div className={cn("min-w-0 truncate text-right text-sm text-muted-foreground max-[760px]:pr-14 max-[760px]:text-left", error && "text-destructive")}>
           {status || "Ready"}
@@ -823,8 +809,6 @@ export function App() {
           chapterCount={chapters.length}
           translatedCount={chapters.length - untranslatedCount}
           queuedCount={bulkSelection.size}
-          glossaryModel={config.glossary_model}
-          translationModel={config.translation_model}
           canExport={Boolean(novel) && chapters.length > 0 && chapters.length !== untranslatedCount}
           busy={busy}
           bulkQueueActive={bulkQueueActive}
@@ -846,7 +830,6 @@ export function App() {
           translated={translated}
           onChooseBook={() => navigate("/books")}
           onExport={exportEpub}
-          onModelChange={updateConfigModels}
           onSearchChange={setChapterSearch}
           onOpen={(filename) => navigate(translatePath(novel, filename))}
           onToggle={toggleBulkChapter}
@@ -859,21 +842,24 @@ export function App() {
           onPrevious={() => goToChapter(previousChapter?.filename)}
           onNext={() => goToChapter(nextChapter?.filename)}
         />
-      ) : (
+      ) : page === "glossary" ? (
         <GlossaryPage
-          apiKey={apiKey}
-          config={config}
           glossary={glossary}
           novel={novel}
-          usage={usage}
-          onApiKeyChange={setApiKey}
-          onConfigChange={updateConfigModels}
-          onSaveConfig={saveConfig}
-          onResetUsage={resetUsage}
           onAdd={addGlossaryEntry}
           onRemove={removeGlossaryEntry}
           onSave={saveGlossary}
           onUpdate={updateGlossaryEntry}
+        />
+      ) : (
+        <SettingsPage
+          openrouterApiKey={openrouterApiKey}
+          config={config}
+          usage={usage}
+          onOpenrouterApiKeyChange={setOpenrouterApiKey}
+          onConfigChange={updateConfig}
+          onSaveConfig={saveConfig}
+          onResetUsage={resetUsage}
         />
       )}
     </div>
@@ -900,6 +886,9 @@ function routePage(pathname: string): RoutePage | null {
   }
   if (pathname === "/glossary") {
     return "glossary";
+  }
+  if (pathname === "/settings") {
+    return "settings";
   }
   return null;
 }

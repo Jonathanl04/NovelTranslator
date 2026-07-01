@@ -51,14 +51,15 @@ def ensure_translated_novel_name(
         return existing
 
     config = load_config()
-    if not config["api_key"]:
+    api_key = config["openrouter_api_key"]
+    if not api_key:
         return safe_novel
 
     call_api = call_api or call_deepseek
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)
     response = call_api(
-        config["api_key"],
+        api_key,
         config["translation_model"],
         build_novel_name_messages(safe_novel),
     )

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Save, Search, Settings, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Save, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,36 +19,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Config, GlossaryEntry, Usage } from "@/types";
-import { emptyUsageBucket, formatInteger, MODELS, ModelSelect, UsageSummary } from "./shared";
+import type { GlossaryEntry } from "@/types";
+import { formatInteger } from "./shared";
 
 const PRONOUNS = ["__none__", "male", "female", "unknown", "it"];
 const GLOSSARY_ENTRIES_PER_PAGE = 20;
 
 export function GlossaryPage({
-  apiKey,
-  config,
   glossary,
   novel,
-  usage,
-  onApiKeyChange,
-  onConfigChange,
-  onSaveConfig,
-  onResetUsage,
   onAdd,
   onRemove,
   onSave,
   onUpdate,
 }: {
-  apiKey: string;
-  config: Config;
   glossary: GlossaryEntry[];
   novel: string;
-  usage: Usage;
-  onApiKeyChange: (value: string) => void;
-  onConfigChange: (patch: Partial<Pick<Config, "translation_model" | "glossary_model">>) => void;
-  onSaveConfig: () => void;
-  onResetUsage: () => void;
   onAdd: () => void;
   onRemove: (index: number) => void;
   onSave: () => void;
@@ -101,61 +87,8 @@ export function GlossaryPage({
   }, [glossaryPage, totalGlossaryPages]);
 
   return (
-    <main className="grid min-h-[calc(100vh-3.5rem)] min-w-0 grid-cols-[320px_minmax(0,1fr)] overflow-x-hidden max-[980px]:grid-cols-1">
-      <aside className="grid min-w-0 content-start gap-4 border-r bg-muted/20 p-3 max-[980px]:border-r-0 max-[980px]:border-b sm:p-4">
-        <section className="grid min-w-0 gap-3 overflow-hidden rounded-lg border bg-background p-3">
-          <div className="flex items-center gap-2">
-            <Settings className="size-4 text-teal-700" />
-            <h2 className="text-sm font-semibold">Settings</h2>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="api-key">OpenRouter API key</Label>
-            <div className="grid min-w-0 grid-cols-[1fr_auto] gap-2 max-[420px]:grid-cols-1">
-              <Input
-                id="api-key"
-                type="password"
-                value={apiKey}
-                placeholder={config.has_api_key ? config.api_key_mask : ""}
-                autoComplete="off"
-                onChange={(event) => onApiKeyChange(event.target.value)}
-              />
-              <Button type="button" onClick={onSaveConfig}>
-                <Save />
-                Save
-              </Button>
-            </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-            <ModelSelect
-              id="glossary-model-settings"
-              label="Glossary model"
-              value={config.glossary_model}
-              onChange={(glossary_model) => onConfigChange({ glossary_model })}
-            />
-            <ModelSelect
-              id="translation-model-settings"
-              label="Translation model"
-              value={config.translation_model}
-              onChange={(translation_model) => onConfigChange({ translation_model })}
-            />
-          </div>
-        </section>
-
-        <section className="grid min-w-0 gap-2 overflow-hidden rounded-lg border bg-background p-3 text-sm">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold">Token usage</h2>
-            <Button type="button" variant="outline" size="sm" onClick={onResetUsage}>
-              Reset
-            </Button>
-          </div>
-          {MODELS.map((model) => (
-            <UsageSummary key={model} label={model} usage={usage.by_model[model] || emptyUsageBucket} />
-          ))}
-          <UsageSummary label="Total" usage={usage.total} prominent />
-        </section>
-      </aside>
-
-      <section className="grid min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-4 p-3 sm:p-4">
+    <main className="min-h-[calc(100vh-3.5rem)] min-w-0 overflow-x-hidden bg-muted/20">
+      <section className="mx-auto grid min-h-[calc(100vh-3.5rem)] max-w-6xl min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-4 p-3 sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Glossary</h2>
