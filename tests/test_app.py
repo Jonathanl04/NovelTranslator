@@ -116,6 +116,22 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(chapters[0]["title"], "001 Chapter 1")
             self.assertTrue(chapters[0]["translated"])
 
+    def test_lists_chapters_in_numeric_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            novel_dir = output / "Book" / "source"
+            novel_dir.mkdir(parents=True)
+            for name in ["099_Chapter.txt", "1000_Chapter.txt", "100_Chapter.txt"]:
+                (novel_dir / name).write_text("第1章\n\n正文", encoding="utf-8")
+
+            chapters = app.list_chapters("Book", output)
+
+            self.assertEqual(
+                [chapter["filename"] for chapter in chapters],
+                ["099_Chapter.txt", "100_Chapter.txt", "1000_Chapter.txt"],
+            )
+
     def test_novel_metadata_includes_cover_url_when_cover_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "output"

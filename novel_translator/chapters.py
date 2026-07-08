@@ -126,7 +126,7 @@ def list_chapters(
         raise AppError("Novel not found.", 404)
 
     chapters = []
-    for path in sorted(novel_dir.glob("*.txt")):
+    for path in sorted(novel_dir.glob("*.txt"), key=_chapter_sort_key):
         target = translated_path(novel, path.name, translated_root)
         translated_exists = target.exists()
         chapters.append(
@@ -139,6 +139,14 @@ def list_chapters(
             }
         )
     return chapters
+
+
+def _chapter_sort_key(path: Path) -> tuple[int, int | str, str]:
+    stem = path.stem
+    prefix = stem.split("_", 1)[0]
+    if prefix.isdigit():
+        return (0, int(prefix), path.name)
+    return (1, stem, path.name)
 
 
 def chapter_label(filename: str, translated_file: Path | None = None) -> str:
