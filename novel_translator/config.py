@@ -34,7 +34,7 @@ def load_config() -> dict[str, Any]:
         "translation_provider": translation_provider,
         "glossary_model": glossary_model,
         "glossary_provider": glossary_provider,
-        "favorite_models": normalize_favorites(config.get("favorite_models", [])),
+        "added_models": normalize_models(config.get("added_models", config.get("favorite_models", []))),
     }
 
 
@@ -77,7 +77,9 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
         "translation_provider": translation_provider,
         "glossary_model": glossary_model,
         "glossary_provider": glossary_provider,
-        "favorite_models": normalize_favorites(config.get("favorite_models", current["favorite_models"])),
+        "added_models": normalize_models(
+            config.get("added_models", config.get("favorite_models", current["added_models"]))
+        ),
     }
     write_json(settings.CONFIG_PATH, saved)
     return saved
@@ -92,7 +94,7 @@ def public_config() -> dict[str, Any]:
         "translation_provider": config["translation_provider"],
         "glossary_model": config["glossary_model"],
         "glossary_provider": config["glossary_provider"],
-        "favorite_models": config["favorite_models"],
+        "added_models": config["added_models"],
         "model_presets": settings.DEFAULT_MODEL_PRESETS,
     }
 
@@ -123,10 +125,10 @@ def selected_provider(config: dict[str, Any], key: str, model: str, current_prov
     return str(config.get(key, "")).strip()
 
 
-def normalize_favorites(value: Any) -> list[dict[str, str]]:
+def normalize_models(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, list):
         return []
-    favorites = []
+    models = []
     seen = set()
     for item in value:
         if not isinstance(item, dict):
@@ -137,8 +139,8 @@ def normalize_favorites(value: Any) -> list[dict[str, str]]:
         if not model or not provider or key in seen:
             continue
         seen.add(key)
-        favorites.append({"model": model, "provider": provider})
-    return favorites
+        models.append({"model": model, "provider": provider})
+    return models
 
 
 def normalize_preset_model(model: str, provider: str) -> tuple[str, str]:

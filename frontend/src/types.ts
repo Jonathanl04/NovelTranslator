@@ -1,4 +1,4 @@
-export type FavoriteModel = {
+export type AddedModel = {
   model: string;
   provider: string;
 };
@@ -15,8 +15,8 @@ export type Config = {
   translation_provider: string;
   glossary_model: string;
   glossary_provider: string;
-  favorite_models: FavoriteModel[];
-  model_presets: FavoriteModel[];
+  added_models: AddedModel[];
+  model_presets: AddedModel[];
 };
 
 export type Chapter = {

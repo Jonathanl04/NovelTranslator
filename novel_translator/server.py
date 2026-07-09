@@ -174,7 +174,7 @@ class Handler(BaseHTTPRequestHandler):
                 "translation_provider": saved["translation_provider"],
                 "glossary_model": saved["glossary_model"],
                 "glossary_provider": saved["glossary_provider"],
-                "favorite_models": saved["favorite_models"],
+                "added_models": saved["added_models"],
                 "model_presets": settings.DEFAULT_MODEL_PRESETS,
             }
         )

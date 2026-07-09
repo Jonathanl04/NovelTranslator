@@ -43,7 +43,7 @@ const emptyConfig: Config = {
   translation_provider: "deepseek",
   glossary_model: "deepseek/deepseek-v4-flash",
   glossary_provider: "deepseek",
-  favorite_models: [],
+  added_models: [],
   model_presets: [
     { model: "deepseek/deepseek-v4-flash", provider: "deepseek" },
     { model: "deepseek/deepseek-v4-pro", provider: "deepseek" },
@@ -517,18 +517,20 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [bulkRunning, loadNovelMetadata, novel, selectedFile, showStatus]);
 
-  async function saveConfig() {
+  async function saveConfig(patch: Partial<Config> = {}) {
     const requestVersion = ++configRequestVersion.current;
+    const nextConfig = { ...config, ...patch };
+    const saveApiKey = Object.keys(patch).length === 0;
     try {
       const current = await api.config();
       const saved = await api.saveConfig({
-        openrouter_api_key: openrouterApiKey.trim() || undefined,
-        keep_existing_openrouter_key: !openrouterApiKey.trim() && current.has_openrouter_api_key,
-        translation_model: config.translation_model,
-        translation_provider: config.translation_provider,
-        glossary_model: config.glossary_model,
-        glossary_provider: config.glossary_provider,
-        favorite_models: config.favorite_models,
+        openrouter_api_key: saveApiKey && openrouterApiKey.trim() ? openrouterApiKey.trim() : undefined,
+        keep_existing_openrouter_key: !saveApiKey || (!openrouterApiKey.trim() && current.has_openrouter_api_key),
+        translation_model: nextConfig.translation_model,
+        translation_provider: nextConfig.translation_provider,
+        glossary_model: nextConfig.glossary_model,
+        glossary_provider: nextConfig.glossary_provider,
+        added_models: nextConfig.added_models,
       });
       if (requestVersion !== configRequestVersion.current) {
         return;

@@ -618,7 +618,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(saved["glossary_model"], "xiaomi/mimo-v2.5-pro")
         self.assertEqual(saved["glossary_provider"], "xiaomi")
 
-    def test_save_config_accepts_custom_models_providers_and_favorites(self) -> None:
+    def test_save_config_accepts_custom_models_providers_and_added_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
         ):
@@ -629,7 +629,7 @@ class TranslatorAppTests(unittest.TestCase):
                     "translation_provider": "anthropic",
                     "glossary_model": "google/gemini-2.5-flash",
                     "glossary_provider": "google-ai-studio",
-                    "favorite_models": [
+                    "added_models": [
                         {"model": "anthropic/claude-sonnet-4.5", "provider": "anthropic"},
                         {"model": "anthropic/claude-sonnet-4.5", "provider": "anthropic"},
                         {"model": "", "provider": "missing"},
@@ -643,9 +643,32 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(saved["glossary_model"], "google/gemini-2.5-flash")
         self.assertEqual(saved["glossary_provider"], "google-ai-studio")
         self.assertEqual(
-            loaded["favorite_models"],
+            loaded["added_models"],
             [{"model": "anthropic/claude-sonnet-4.5", "provider": "anthropic"}],
         )
+
+    def test_load_config_migrates_legacy_saved_models_to_added_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            (Path(tmp) / "translator_config.json").write_text(
+                json.dumps(
+                    {
+                        "translation_model": "deepseek-v4-flash",
+                        "translation_provider": "deepseek",
+                        "glossary_model": "deepseek-v4-flash",
+                        "glossary_provider": "deepseek",
+                        "favorite_models": [
+                            {"model": "tencent/hy3:free", "provider": "novita"}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = app.load_config()
+
+        self.assertEqual(loaded["added_models"], [{"model": "tencent/hy3:free", "provider": "novita"}])
 
     def test_save_config_rejects_blank_custom_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -956,7 +979,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertNotIn("nvidia_api_key", app_source)
         self.assertIn("translation_provider", app_source)
         self.assertIn("glossary_provider", app_source)
-        self.assertIn("favorite_models", app_source)
+        self.assertIn("added_models", app_source)
         self.assertNotIn("ModelSelect", translate_source)
         self.assertNotIn("OpenRouter API key", glossary_source)
 

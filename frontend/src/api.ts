@@ -45,7 +45,7 @@ export const api = {
     translation_provider: string;
     glossary_model: string;
     glossary_provider: string;
-    favorite_models: Config["favorite_models"];
+    added_models: Config["added_models"];
   }) => request<Config>("/api/config", { method: "POST", body: JSON.stringify(payload) }),
   openrouterProviders: (model: string) =>
     request<OpenRouterProvider[]>(`/api/openrouter/providers?model=${encodeURIComponent(model)}`),

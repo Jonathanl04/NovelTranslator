@@ -1,4 +1,4 @@
-import { Loader2, KeyRound, Save, Settings, Star, Trash2, WalletCards } from "lucide-react";
+import { Loader2, KeyRound, Plus, Save, Settings, Trash2, WalletCards } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Config, FavoriteModel, OpenRouterProvider, Usage } from "@/types";
+import type { AddedModel, Config, OpenRouterProvider, Usage } from "@/types";
 import { UsageSummary } from "./shared";
 
 export function SettingsPage({
@@ -28,35 +28,27 @@ export function SettingsPage({
   usage: Usage;
   onOpenrouterApiKeyChange: (value: string) => void;
   onConfigChange: (patch: Partial<Config>) => void;
-  onSaveConfig: () => void;
+  onSaveConfig: (patch?: Partial<Config>) => void | Promise<void>;
   onResetUsage: () => void;
 }) {
-  const [providers, setProviders] = useState<Record<"glossary" | "translation", OpenRouterProvider[]>>({
-    glossary: [],
-    translation: [],
-  });
-  const [loadingProviders, setLoadingProviders] = useState<"glossary" | "translation" | "">("");
+  const [newModel, setNewModel] = useState("");
+  const [newProvider, setNewProvider] = useState("");
+  const [newProviders, setNewProviders] = useState<OpenRouterProvider[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
   const [providerError, setProviderError] = useState("");
-  const canSave = Boolean(
-    config.glossary_model.trim() &&
-      config.glossary_provider.trim() &&
-      config.translation_model.trim() &&
-      config.translation_provider.trim()
-  );
 
-  async function loadProviders(kind: "glossary" | "translation") {
-    const model = kind === "glossary" ? config.glossary_model : config.translation_model;
-    if (!model.trim()) {
+  async function loadProviders() {
+    if (!newModel.trim()) {
       setProviderError("Enter a model before loading providers.");
       return;
     }
     setProviderError("");
-    setLoadingProviders(kind);
+    setLoadingProviders(true);
     try {
-      const nextProviders = await api.openrouterProviders(model.trim());
-      setProviders((current) => ({ ...current, [kind]: nextProviders }));
+      const nextProviders = await api.openrouterProviders(newModel.trim());
+      setNewProviders(nextProviders);
       if (nextProviders.length === 1) {
-        onConfigChange({ [`${kind}_provider`]: nextProviders[0].provider } as Partial<Config>);
+        setNewProvider(nextProviders[0].provider);
       }
       if (nextProviders.length === 0) {
         setProviderError("No providers returned for that model.");
@@ -64,31 +56,37 @@ export function SettingsPage({
     } catch (caught) {
       setProviderError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setLoadingProviders("");
+      setLoadingProviders(false);
     }
   }
 
-  function favoriteCurrent(kind: "glossary" | "translation") {
-    const model = (kind === "glossary" ? config.glossary_model : config.translation_model).trim();
-    const provider = (kind === "glossary" ? config.glossary_provider : config.translation_provider).trim();
+  function addCurrentModel() {
+    const model = newModel.trim();
+    const provider = newProvider.trim();
     if (!model || !provider) return;
-    const favorite = { model, provider };
-    onConfigChange({ favorite_models: mergeFavorites(config.favorite_models, favorite) });
+    const added_models = mergeModels(config.added_models, { model, provider });
+    onConfigChange({ added_models });
+    onSaveConfig({ added_models });
+    setNewModel("");
+    setNewProvider("");
+    setNewProviders([]);
   }
 
-  function applyFavorite(kind: "glossary" | "translation", indexValue: string) {
-    const favorite = modelChoices(config)[Number(indexValue)];
-    if (!favorite) return;
-    setProviders((current) => ({ ...current, [kind]: [] }));
-    if (kind === "glossary") {
-      onConfigChange({ glossary_model: favorite.model, glossary_provider: favorite.provider });
-    } else {
-      onConfigChange({ translation_model: favorite.model, translation_provider: favorite.provider });
-    }
+  function selectModel(kind: "glossary" | "translation", indexValue: string) {
+    const selected = modelChoices(config)[Number(indexValue)];
+    if (!selected) return;
+    const patch =
+      kind === "glossary"
+        ? { glossary_model: selected.model, glossary_provider: selected.provider }
+        : { translation_model: selected.model, translation_provider: selected.provider };
+    onConfigChange(patch);
+    onSaveConfig(patch);
   }
 
-  function removeFavorite(index: number) {
-    onConfigChange({ favorite_models: config.favorite_models.filter((_, itemIndex) => itemIndex !== index) });
+  function removeAddedModel(index: number) {
+    const added_models = config.added_models.filter((_, itemIndex) => itemIndex !== index);
+    onConfigChange({ added_models });
+    onSaveConfig({ added_models });
   }
 
   return (
@@ -115,6 +113,12 @@ export function SettingsPage({
               onChange={(event) => onOpenrouterApiKeyChange(event.target.value)}
             />
           </div>
+          <div>
+            <Button type="button" onClick={() => onSaveConfig()}>
+              <Save />
+              Save API Key
+            </Button>
+          </div>
         </section>
 
         <section className="grid gap-3 rounded-lg border bg-background p-3">
@@ -128,51 +132,77 @@ export function SettingsPage({
               title="Glossary model"
               model={config.glossary_model}
               provider={config.glossary_provider}
-              providers={providers.glossary}
               choices={modelChoices(config)}
-              loading={loadingProviders === "glossary"}
-              onModelChange={(glossary_model) => {
-                setProviders((current) => ({ ...current, glossary: [] }));
-                onConfigChange({ glossary_model, glossary_provider: "" });
-              }}
-              onProviderChange={(glossary_provider) => onConfigChange({ glossary_provider })}
-              onLoadProviders={() => loadProviders("glossary")}
-              onFavorite={() => favoriteCurrent("glossary")}
-              onApplyFavorite={(index) => applyFavorite("glossary", index)}
+              onSelectModel={(index) => selectModel("glossary", index)}
             />
             <ModelProviderEditor
               kind="translation"
               title="Translation model"
               model={config.translation_model}
               provider={config.translation_provider}
-              providers={providers.translation}
               choices={modelChoices(config)}
-              loading={loadingProviders === "translation"}
-              onModelChange={(translation_model) => {
-                setProviders((current) => ({ ...current, translation: [] }));
-                onConfigChange({ translation_model, translation_provider: "" });
-              }}
-              onProviderChange={(translation_provider) => onConfigChange({ translation_provider })}
-              onLoadProviders={() => loadProviders("translation")}
-              onFavorite={() => favoriteCurrent("translation")}
-              onApplyFavorite={(index) => applyFavorite("translation", index)}
+              onSelectModel={(index) => selectModel("translation", index)}
             />
           </div>
-          {providerError ? <p className="text-xs text-destructive">{providerError}</p> : null}
-          {config.favorite_models.length > 0 ? (
-            <div className="grid gap-2">
-              <Label>Favorite models</Label>
+          <section className="grid gap-3 rounded-md border p-3">
+            <div className="text-sm font-semibold">Add model</div>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
               <div className="grid gap-1.5">
-                {config.favorite_models.map((favorite, index) => (
-                  <div key={`${favorite.provider}:${favorite.model}`} className="flex min-w-0 items-center gap-2 rounded-md border p-2 text-xs">
-                    <span className="min-w-0 flex-1 truncate font-medium">{modelLabel(favorite)}</span>
+                <Label htmlFor="new-model-settings">Model ID</Label>
+                <Input
+                  id="new-model-settings"
+                  value={newModel}
+                  placeholder="provider/model-name"
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setNewModel(event.target.value);
+                    setNewProvider("");
+                    setNewProviders([]);
+                  }}
+                />
+              </div>
+              <Button type="button" variant="outline" onClick={loadProviders} disabled={loadingProviders || !newModel.trim()}>
+                {loadingProviders ? <Loader2 className="animate-spin" /> : <Settings />}
+                Load providers
+              </Button>
+              <Button type="button" variant="outline" onClick={addCurrentModel} disabled={!newModel.trim() || !newProvider.trim()}>
+                <Plus />
+                Add model
+              </Button>
+            </div>
+            {newProviders.length > 0 ? (
+              <div className="grid gap-1.5">
+                <Label htmlFor="new-model-provider-settings">Provider</Label>
+                <Select value={newProvider} onValueChange={setNewProvider}>
+                  <SelectTrigger id="new-model-provider-settings" className="w-full bg-background">
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {newProviders.map((item) => (
+                      <SelectItem key={item.provider} value={item.provider}>
+                        {item.provider}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </section>
+          {providerError ? <p className="text-xs text-destructive">{providerError}</p> : null}
+          {config.added_models.length > 0 ? (
+            <div className="grid gap-2">
+              <Label>Added models</Label>
+              <div className="grid gap-1.5">
+                {config.added_models.map((model, index) => (
+                  <div key={`${model.provider}:${model.model}`} className="flex min-w-0 items-center gap-2 rounded-md border p-2 text-xs">
+                    <span className="min-w-0 flex-1 truncate font-medium">{modelLabel(model)}</span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => removeFavorite(index)}
-                      aria-label={`Remove ${modelLabel(favorite)}`}
-                      title="Remove favorite"
+                      onClick={() => removeAddedModel(index)}
+                      aria-label={`Remove ${modelLabel(model)}`}
+                      title="Remove model"
                     >
                       <Trash2 />
                     </Button>
@@ -181,12 +211,6 @@ export function SettingsPage({
               </div>
             </div>
           ) : null}
-          <div>
-            <Button type="button" onClick={onSaveConfig} disabled={!canSave}>
-              <Save />
-              Save Settings
-            </Button>
-          </div>
         </section>
 
         <section className="grid gap-3 rounded-lg border bg-background p-3 text-sm">
@@ -211,43 +235,37 @@ function ModelProviderEditor({
   title,
   model,
   provider,
-  providers,
   choices,
-  loading,
-  onModelChange,
-  onProviderChange,
-  onLoadProviders,
-  onFavorite,
-  onApplyFavorite,
+  onSelectModel,
 }: {
   kind: "glossary" | "translation";
   title: string;
   model: string;
   provider: string;
-  providers: OpenRouterProvider[];
-  choices: FavoriteModel[];
-  loading: boolean;
-  onModelChange: (value: string) => void;
-  onProviderChange: (value: string) => void;
-  onLoadProviders: () => void;
-  onFavorite: () => void;
-  onApplyFavorite: (index: string) => void;
+  choices: AddedModel[];
+  onSelectModel: (index: string) => void;
 }) {
-  const canFavorite = Boolean(model.trim() && provider.trim());
+  const selectedChoiceIndex = choices.findIndex(
+    (item) => item.model === model && item.provider === provider
+  );
+  const selectedChoiceValue = selectedChoiceIndex >= 0 ? String(selectedChoiceIndex) : "custom";
 
   return (
     <div className="grid gap-3 rounded-md border p-3">
       {choices.length > 0 ? (
         <div className="grid gap-1.5">
           <Label htmlFor={`${kind}-saved-model-settings`}>{title}</Label>
-          <Select value="" onValueChange={onApplyFavorite}>
+          <Select value={selectedChoiceValue} onValueChange={onSelectModel}>
             <SelectTrigger id={`${kind}-saved-model-settings`} className="w-full bg-background">
-              <SelectValue placeholder="Apply favorite" />
+              <SelectValue placeholder="Select model" />
             </SelectTrigger>
             <SelectContent>
-              {choices.map((favorite, index) => (
-                <SelectItem key={`${favorite.provider}:${favorite.model}`} value={String(index)}>
-                  {modelLabel(favorite)}
+              {selectedChoiceIndex < 0 ? (
+                <SelectItem value="custom">{modelLabel({ model, provider })}</SelectItem>
+              ) : null}
+              {choices.map((item, index) => (
+                <SelectItem key={`${item.provider}:${item.model}`} value={String(index)}>
+                  {modelLabel(item)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -256,42 +274,7 @@ function ModelProviderEditor({
       ) : (
         <div className="text-sm font-semibold">{title}</div>
       )}
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${kind}-custom-model-settings`}>Model ID</Label>
-        <Input
-          id={`${kind}-custom-model-settings`}
-          value={model}
-          placeholder="provider/model-name"
-          autoComplete="off"
-          onChange={(event) => onModelChange(event.target.value)}
-        />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" onClick={onLoadProviders} disabled={loading || !model.trim()}>
-          {loading ? <Loader2 className="animate-spin" /> : <Settings />}
-          Load providers
-        </Button>
-        <Button type="button" variant="outline" onClick={onFavorite} disabled={!canFavorite}>
-          <Star />
-          Favorite
-        </Button>
-      </div>
-      {providers.length > 0 ? <div className="grid gap-1.5">
-        <Label htmlFor={`${kind}-provider-settings`}>Provider</Label>
-        <Select value={provider} onValueChange={onProviderChange}>
-          <SelectTrigger id={`${kind}-provider-settings`} className="w-full bg-background">
-            <SelectValue placeholder="Select provider" />
-          </SelectTrigger>
-          <SelectContent>
-            {providers.map((item) => (
-              <SelectItem key={item.provider} value={item.provider}>
-                {item.provider}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div> : null}
-      {providers.length === 0 && provider.trim() ? (
+      {provider.trim() ? (
         <div className="text-xs text-muted-foreground">
           Provider: <span className="font-medium text-foreground">{provider}</span>
         </div>
@@ -300,19 +283,19 @@ function ModelProviderEditor({
   );
 }
 
-function mergeFavorites(favorites: FavoriteModel[], favorite: FavoriteModel) {
-  if (favorites.some((item) => item.model === favorite.model && item.provider === favorite.provider)) {
-    return favorites;
+function mergeModels(models: AddedModel[], model: AddedModel) {
+  if (models.some((item) => item.model === model.model && item.provider === model.provider)) {
+    return models;
   }
-  return [...favorites, favorite];
+  return [...models, model];
 }
 
-function modelLabel(favorite: FavoriteModel) {
-  return `${favorite.model} (${favorite.provider})`;
+function modelLabel(model: AddedModel) {
+  return `${model.model} (${model.provider})`;
 }
 
 function modelChoices(config: Config) {
-  return [...config.model_presets, ...config.favorite_models].reduce<FavoriteModel[]>((items, favorite) => {
-    return mergeFavorites(items, favorite);
+  return [...config.model_presets, ...config.added_models].reduce<AddedModel[]>((items, model) => {
+    return mergeModels(items, model);
   }, []);
 }
