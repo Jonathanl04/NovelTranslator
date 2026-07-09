@@ -3,29 +3,6 @@ from copy import deepcopy
 from typing import Any
 
 
-DEEPSEEK_PRICING_PER_MILLION = {
-    "deepseek-v4-flash": {
-        "input_cache_hit": 0.0028,
-        "input_cache_miss": 0.14,
-        "output": 0.28,
-    },
-    "deepseek-v4-pro": {
-        "input_cache_hit": 0.003625,
-        "input_cache_miss": 0.435,
-        "output": 0.87,
-    },
-    "mimo-v2.5": {
-        "input_cache_hit": 0.0028,
-        "input_cache_miss": 0.14,
-        "output": 0.28,
-    },
-    "mimo-v2.5-pro": {
-        "input_cache_hit": 0.0036,
-        "input_cache_miss": 0.435,
-        "output": 0.87,
-    },
-}
-
 _empty_usage = {
     "prompt_cache_hit_tokens": 0,
     "prompt_cache_miss_tokens": 0,
@@ -34,7 +11,7 @@ _empty_usage = {
     "total_tokens": 0,
     "cost_usd": 0.0,
 }
-_usage = {model: deepcopy(_empty_usage) for model in DEEPSEEK_PRICING_PER_MILLION}
+_usage = {}
 _usage_lock = threading.Lock()
 
 
@@ -55,12 +32,7 @@ def record_deepseek_usage(model: str, response: dict[str, Any]) -> None:
     if not miss_tokens:
         miss_tokens = max(prompt_tokens - hit_tokens, 0)
 
-    rates = DEEPSEEK_PRICING_PER_MILLION.get(model, {})
-    cost = (
-        hit_tokens * float(rates.get("input_cache_hit", 0))
-        + miss_tokens * float(rates.get("input_cache_miss", 0))
-        + completion_tokens * float(rates.get("output", 0))
-    ) / 1_000_000
+    cost = usage_cost(usage)
 
     with _usage_lock:
         bucket = _usage.setdefault(model, deepcopy(_empty_usage))
@@ -76,8 +48,6 @@ def current_usage() -> dict[str, Any]:
     with _usage_lock:
         by_model = deepcopy(_usage)
     total = deepcopy(_empty_usage)
-    for model in DEEPSEEK_PRICING_PER_MILLION:
-        by_model.setdefault(model, deepcopy(_empty_usage))
     for bucket in by_model.values():
         for key in total:
             total[key] += bucket[key]
@@ -89,9 +59,27 @@ def current_usage() -> dict[str, Any]:
 def reset_usage() -> dict[str, Any]:
     with _usage_lock:
         _usage.clear()
-        _usage.update({model: deepcopy(_empty_usage) for model in DEEPSEEK_PRICING_PER_MILLION})
     return current_usage()
 
 
 def int_token(value: Any) -> int:
     return value if isinstance(value, int) and value > 0 else 0
+
+
+def usage_cost(usage: dict[str, Any]) -> float:
+    cost = number(usage.get("cost"))
+    details = usage.get("cost_details")
+    upstream_cost = number(details.get("upstream_inference_cost")) if isinstance(details, dict) else None
+    if cost is not None:
+        if upstream_cost is not None and cost <= upstream_cost * 0.1:
+            return cost + upstream_cost
+        return cost
+    return 0.0
+
+
+def number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and value >= 0:
+        return float(value)
+    return None

@@ -40,17 +40,15 @@ const emptyConfig: Config = {
   has_openrouter_api_key: false,
   openrouter_api_key_mask: "",
   translation_model: "deepseek-v4-flash",
+  translation_provider: "deepseek",
   glossary_model: "deepseek-v4-flash",
+  glossary_provider: "deepseek",
+  favorite_models: [],
 };
 
 const emptyUsage: Usage = {
   total: emptyUsageBucket,
-  by_model: {
-    "deepseek-v4-flash": emptyUsageBucket,
-    "deepseek-v4-pro": emptyUsageBucket,
-    "mimo-v2.5": emptyUsageBucket,
-    "mimo-v2.5-pro": emptyUsageBucket,
-  },
+  by_model: {},
 };
 
 const emptyScrapeState: ScrapeState = {
@@ -521,7 +519,10 @@ export function App() {
         openrouter_api_key: openrouterApiKey.trim() || undefined,
         keep_existing_openrouter_key: !openrouterApiKey.trim() && current.has_openrouter_api_key,
         translation_model: config.translation_model,
+        translation_provider: config.translation_provider,
         glossary_model: config.glossary_model,
+        glossary_provider: config.glossary_provider,
+        favorite_models: config.favorite_models,
       });
       if (requestVersion !== configRequestVersion.current) {
         return;

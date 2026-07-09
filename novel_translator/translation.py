@@ -168,7 +168,10 @@ def configured_api_call(
     api_key: str,
     model: str,
     messages: list[dict[str, str]],
+    provider: str = "",
 ) -> dict[str, Any]:
+    if provider and call_api is call_deepseek:
+        return call_api(api_key, model, messages, provider)
     return call_api(api_key, model, messages)
 
 
@@ -430,7 +433,11 @@ def populate_glossary_for_chapter(
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
             api_response = configured_api_call(
-                call_api, api_key, config["glossary_model"], retry_messages
+                call_api,
+                api_key,
+                config["glossary_model"],
+                retry_messages,
+                config["glossary_provider"],
             )
             try:
                 updates = parse_glossary_response(api_response)
@@ -509,7 +516,11 @@ def translate_chapter(
                 raise AppError("Bulk translation aborted.", 409)
             try:
                 api_response = configured_api_call(
-                    call_api, api_key, config["translation_model"], retry_messages
+                    call_api,
+                    api_key,
+                    config["translation_model"],
+                    retry_messages,
+                    config["translation_provider"],
                 )
             except AppError as exc:
                 if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
@@ -544,6 +555,7 @@ def translate_chapter(
                 api_key,
                 config["translation_model"],
                 build_fragment_repair_messages(retry_messages, draft_json),
+                config["translation_provider"],
             )
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
@@ -562,7 +574,11 @@ def translate_chapter(
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
             repair_response = configured_api_call(
-                call_api, api_key, config["translation_model"], repair_messages
+                call_api,
+                api_key,
+                config["translation_model"],
+                repair_messages,
+                config["translation_provider"],
             )
             try:
                 parsed = parse_translation_response(repair_response)

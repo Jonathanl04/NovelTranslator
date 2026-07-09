@@ -58,11 +58,11 @@ def ensure_translated_novel_name(
     call_api = call_api or call_deepseek
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)
-    response = call_api(
-        api_key,
-        config["translation_model"],
-        build_novel_name_messages(safe_novel),
-    )
+    messages = build_novel_name_messages(safe_novel)
+    if call_api is call_deepseek:
+        response = call_api(api_key, config["translation_model"], messages, config["translation_provider"])
+    else:
+        response = call_api(api_key, config["translation_model"], messages)
     translated_name = parse_novel_name_response(response)
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)

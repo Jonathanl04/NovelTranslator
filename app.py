@@ -13,7 +13,7 @@ from novel_translator.chapters import (
     write_translation,
 )
 from novel_translator.config import load_config, mask_key, public_config, safe_file_stem, save_config
-from novel_translator.deepseek import call_deepseek
+from novel_translator.deepseek import call_deepseek, openrouter_model_providers
 from novel_translator.epub import build_translated_epub
 from novel_translator.errors import AppError
 from novel_translator.failure_log import log_deepseek_failure

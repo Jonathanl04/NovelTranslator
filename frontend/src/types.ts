@@ -1,10 +1,21 @@
-export type Model = "deepseek-v4-flash" | "deepseek-v4-pro" | "mimo-v2.5" | "mimo-v2.5-pro";
+export type FavoriteModel = {
+  model: string;
+  provider: string;
+};
+
+export type OpenRouterProvider = {
+  provider: string;
+  name: string;
+};
 
 export type Config = {
   has_openrouter_api_key: boolean;
   openrouter_api_key_mask: string;
-  translation_model: Model;
-  glossary_model: Model;
+  translation_model: string;
+  translation_provider: string;
+  glossary_model: string;
+  glossary_provider: string;
+  favorite_models: FavoriteModel[];
 };
 
 export type Chapter = {
@@ -74,7 +85,7 @@ export type UsageBucket = {
 
 export type Usage = {
   total: UsageBucket;
-  by_model: Record<Model, UsageBucket>;
+  by_model: Record<string, UsageBucket>;
 };
 
 export type BulkStatus = "pending" | "translating" | "done" | "failed" | "aborted";

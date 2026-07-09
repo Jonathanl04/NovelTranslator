@@ -8,6 +8,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import app
 from novel_translator import settings
@@ -274,7 +275,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(parsed["translated_title"], "Chapter 1")
         self.assertEqual(parsed["translated_body"], "Body")
 
-    def test_records_and_resets_deepseek_usage_cost(self) -> None:
+    def test_records_and_resets_openrouter_usage_cost(self) -> None:
         app.reset_usage()
 
         app.record_deepseek_usage(
@@ -286,6 +287,7 @@ class TranslatorAppTests(unittest.TestCase):
                     "prompt_tokens": 300,
                     "completion_tokens": 400,
                     "total_tokens": 700,
+                    "cost": 0.0123,
                 }
             },
         )
@@ -310,12 +312,51 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(flash["prompt_tokens"], 300)
         self.assertEqual(flash["completion_tokens"], 400)
         self.assertEqual(flash["total_tokens"], 700)
-        self.assertEqual(flash["cost_usd"], 0.00014028)
+        self.assertEqual(flash["cost_usd"], 0.0123)
         self.assertEqual(pro["total_tokens"], 70)
-        self.assertEqual(pro["cost_usd"], 0.00004354)
+        self.assertEqual(pro["cost_usd"], 0.0)
         self.assertEqual(usage["total"]["total_tokens"], 770)
-        self.assertEqual(usage["total"]["cost_usd"], 0.00018382)
+        self.assertEqual(usage["total"]["cost_usd"], 0.0123)
         self.assertEqual(app.reset_usage()["total"]["total_tokens"], 0)
+
+    def test_records_openrouter_usage_cost_for_custom_models(self) -> None:
+        app.reset_usage()
+
+        app.record_deepseek_usage(
+            "custom/model",
+            {
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "cost": 0,
+                    "cost_details": {"upstream_inference_cost": 1.5},
+                }
+            },
+        )
+
+        usage = app.current_usage()
+        self.assertEqual(usage["by_model"]["custom/model"]["total_tokens"], 15)
+        self.assertEqual(usage["by_model"]["custom/model"]["cost_usd"], 1.5)
+        self.assertEqual(usage["total"]["cost_usd"], 1.5)
+
+    def test_records_openrouter_cost_without_double_counting_upstream_cost(self) -> None:
+        app.reset_usage()
+
+        app.record_deepseek_usage(
+            "custom/model",
+            {
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                    "cost": 0.25,
+                    "cost_details": {"upstream_inference_cost": 0.26},
+                }
+            },
+        )
+
+        self.assertEqual(app.current_usage()["total"]["cost_usd"], 0.25)
 
     def test_parse_translation_response_rejects_malformed_json(self) -> None:
         payload = {"choices": [{"message": {"content": "not json"}}]}
@@ -381,6 +422,138 @@ class TranslatorAppTests(unittest.TestCase):
             },
         )
 
+    def test_call_deepseek_pins_custom_model_provider(self) -> None:
+        seen = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"usage": {"prompt_tokens": 1, "cost": 0.01}}'
+
+        def fake_opener(request, timeout: int):
+            seen["payload"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse()
+
+        app.call_deepseek(
+            "secret",
+            "anthropic/claude-sonnet-4.5",
+            [{"role": "user", "content": "Hi"}],
+            "anthropic",
+            fake_opener,
+        )
+
+        self.assertEqual(seen["payload"]["model"], "anthropic/claude-sonnet-4.5")
+        self.assertEqual(
+            seen["payload"]["provider"],
+            {"only": ["anthropic"], "allow_fallbacks": False},
+        )
+
+    def test_call_deepseek_retries_without_json_object_and_remembers_model_provider(self) -> None:
+        payloads = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"usage": {"prompt_tokens": 1, "cost": 0.01}}'
+
+        class FakeErrorBody:
+            def __init__(self, body: bytes):
+                self.body = body
+
+            def read(self) -> bytes:
+                return self.body
+
+            def close(self) -> None:
+                return None
+
+        def fake_opener(request, timeout: int):
+            payload = json.loads(request.data.decode("utf-8"))
+            payloads.append(payload)
+            if len(payloads) == 1:
+                raise HTTPError(
+                    request.full_url,
+                    400,
+                    "Bad Request",
+                    {},
+                    FakeErrorBody(b'{"error":{"message":"Model does not support json_object response_format."}}'),
+                )
+            return FakeResponse()
+
+        app.call_deepseek(
+            "secret",
+            "test/json-object-memory",
+            [{"role": "user", "content": "Hi"}],
+            "test-provider",
+            fake_opener,
+        )
+        app.call_deepseek(
+            "secret",
+            "test/json-object-memory",
+            [{"role": "user", "content": "Hi"}],
+            "test-provider",
+            fake_opener,
+        )
+
+        self.assertEqual(payloads[0]["response_format"], {"type": "json_object"})
+        self.assertNotIn("response_format", payloads[1])
+        self.assertNotIn("response_format", payloads[2])
+        self.assertEqual(payloads[2]["provider"], {"only": ["test-provider"], "allow_fallbacks": False})
+
+    def test_openrouter_model_providers_returns_endpoint_providers(self) -> None:
+        seen = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "data": {
+                            "endpoints": [
+                                {"tag": "anthropic", "provider_name": "Anthropic"},
+                                {"tag": "anthropic", "provider_name": "Anthropic duplicate"},
+                                {"tag": "google-vertex", "provider_name": "Google Vertex"},
+                            ]
+                        }
+                    }
+                ).encode("utf-8")
+
+        def fake_opener(request, timeout: int):
+            seen["url"] = request.full_url
+            seen["authorization"] = request.headers["Authorization"]
+            return FakeResponse()
+
+        providers = app.openrouter_model_providers(
+            "anthropic/claude-sonnet-4.5", "secret", fake_opener
+        )
+
+        self.assertEqual(
+            seen["url"],
+            "https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-4.5/endpoints",
+        )
+        self.assertEqual(seen["authorization"], "Bearer secret")
+        self.assertEqual(
+            providers,
+            [
+                {"provider": "anthropic", "name": "Anthropic"},
+                {"provider": "google-vertex", "name": "Google Vertex"},
+            ],
+        )
+
     def test_save_config_accepts_openrouter_model_choices(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
@@ -395,7 +568,53 @@ class TranslatorAppTests(unittest.TestCase):
 
         self.assertEqual(saved["openrouter_api_key"], "secret")
         self.assertEqual(saved["translation_model"], "mimo-v2.5")
+        self.assertEqual(saved["translation_provider"], "xiaomi")
         self.assertEqual(saved["glossary_model"], "mimo-v2.5-pro")
+        self.assertEqual(saved["glossary_provider"], "xiaomi")
+
+    def test_save_config_accepts_custom_models_providers_and_favorites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            saved = app.save_config(
+                {
+                    "openrouter_api_key": "secret",
+                    "translation_model": "anthropic/claude-sonnet-4.5",
+                    "translation_provider": "anthropic",
+                    "glossary_model": "google/gemini-2.5-flash",
+                    "glossary_provider": "google-ai-studio",
+                    "favorite_models": [
+                        {"model": "anthropic/claude-sonnet-4.5", "provider": "anthropic"},
+                        {"model": "anthropic/claude-sonnet-4.5", "provider": "anthropic"},
+                        {"model": "", "provider": "missing"},
+                    ],
+                }
+            )
+            loaded = app.load_config()
+
+        self.assertEqual(saved["translation_model"], "anthropic/claude-sonnet-4.5")
+        self.assertEqual(saved["translation_provider"], "anthropic")
+        self.assertEqual(saved["glossary_model"], "google/gemini-2.5-flash")
+        self.assertEqual(saved["glossary_provider"], "google-ai-studio")
+        self.assertEqual(
+            loaded["favorite_models"],
+            [{"model": "anthropic/claude-sonnet-4.5", "provider": "anthropic"}],
+        )
+
+    def test_save_config_rejects_blank_custom_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "CONFIG_PATH", Path(tmp) / "translator_config.json"
+        ):
+            with self.assertRaises(app.AppError):
+                app.save_config(
+                    {
+                        "openrouter_api_key": "secret",
+                        "translation_model": "anthropic/claude-sonnet-4.5",
+                        "translation_provider": "",
+                        "glossary_model": "deepseek-v4-flash",
+                        "glossary_provider": "deepseek",
+                    }
+                )
 
     def test_load_config_migrates_legacy_api_key_to_openrouter_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -689,8 +908,9 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("SettingsPage", app_source)
         self.assertIn("openrouter_api_key", app_source)
         self.assertNotIn("nvidia_api_key", app_source)
-        self.assertNotIn("translation_provider", app_source)
-        self.assertNotIn("glossary_provider", app_source)
+        self.assertIn("translation_provider", app_source)
+        self.assertIn("glossary_provider", app_source)
+        self.assertIn("favorite_models", app_source)
         self.assertNotIn("ModelSelect", translate_source)
         self.assertNotIn("OpenRouter API key", glossary_source)
 

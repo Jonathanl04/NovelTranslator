@@ -5,8 +5,8 @@ import type {
   ChapterDetail,
   Config,
   GlossaryEntry,
-  Model,
   NovelMetadata,
+  OpenRouterProvider,
   QidianAuthState,
   ScrapeState,
   TranslationResult,
@@ -32,9 +32,14 @@ export const api = {
   saveConfig: (payload: {
     openrouter_api_key?: string;
     keep_existing_openrouter_key: boolean;
-    translation_model: Model;
-    glossary_model: Model;
+    translation_model: string;
+    translation_provider: string;
+    glossary_model: string;
+    glossary_provider: string;
+    favorite_models: Config["favorite_models"];
   }) => request<Config>("/api/config", { method: "POST", body: JSON.stringify(payload) }),
+  openrouterProviders: (model: string) =>
+    request<OpenRouterProvider[]>(`/api/openrouter/providers?model=${encodeURIComponent(model)}`),
   novels: () => request<string[]>("/api/novels"),
   novel: (novel: string) =>
     request<NovelMetadata>(`/api/novel?novel=${encodeURIComponent(novel)}`),

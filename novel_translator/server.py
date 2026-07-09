@@ -17,6 +17,7 @@ from . import settings
 from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
 from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
+from .deepseek import openrouter_model_providers
 from .errors import AppError
 from .epub import build_translated_epub
 from .glossary import load_glossary, save_glossary
@@ -58,6 +59,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/usage":
                 self.handle_usage(method)
+                return
+            if method == "GET" and parsed.path == "/api/openrouter/providers":
+                query = urllib.parse.parse_qs(parsed.query)
+                config = load_config()
+                self.json(openrouter_model_providers(first(query, "model"), config["openrouter_api_key"]))
                 return
             if method == "GET" and parsed.path == "/api/novels":
                 self.json(list_novels())
@@ -157,7 +163,10 @@ class Handler(BaseHTTPRequestHandler):
                 "has_openrouter_api_key": bool(saved["openrouter_api_key"]),
                 "openrouter_api_key_mask": mask_key(saved["openrouter_api_key"]),
                 "translation_model": saved["translation_model"],
+                "translation_provider": saved["translation_provider"],
                 "glossary_model": saved["glossary_model"],
+                "glossary_provider": saved["glossary_provider"],
+                "favorite_models": saved["favorite_models"],
             }
         )
 
