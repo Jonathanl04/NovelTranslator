@@ -254,7 +254,7 @@ class TranslatorAppTests(unittest.TestCase):
             root / "Novel" / "translated" / "001_Title.txt",
         )
 
-    def test_parse_translation_response_from_deepseek_message(self) -> None:
+    def test_parse_translation_response_from_model_message(self) -> None:
         payload = {
             "choices": [
                 {
@@ -278,7 +278,7 @@ class TranslatorAppTests(unittest.TestCase):
     def test_records_and_resets_openrouter_usage_cost(self) -> None:
         app.reset_usage()
 
-        app.record_deepseek_usage(
+        app.record_llm_usage(
             "deepseek-v4-flash",
             {
                 "usage": {
@@ -291,7 +291,7 @@ class TranslatorAppTests(unittest.TestCase):
                 }
             },
         )
-        app.record_deepseek_usage(
+        app.record_llm_usage(
             "deepseek-v4-pro",
             {
                 "usage": {
@@ -322,7 +322,7 @@ class TranslatorAppTests(unittest.TestCase):
     def test_records_openrouter_usage_cost_for_custom_models(self) -> None:
         app.reset_usage()
 
-        app.record_deepseek_usage(
+        app.record_llm_usage(
             "custom/model",
             {
                 "usage": {
@@ -343,7 +343,7 @@ class TranslatorAppTests(unittest.TestCase):
     def test_records_openrouter_cost_without_double_counting_upstream_cost(self) -> None:
         app.reset_usage()
 
-        app.record_deepseek_usage(
+        app.record_llm_usage(
             "custom/model",
             {
                 "usage": {
@@ -364,8 +364,8 @@ class TranslatorAppTests(unittest.TestCase):
         with self.assertRaises(app.AppError):
             app.parse_translation_response(payload)
 
-    def test_call_deepseek_uses_300_second_timeout(self) -> None:
-        from novel_translator.deepseek import DEEPSEEK_TIMEOUT_SECONDS
+    def test_call_openrouter_uses_300_second_timeout(self) -> None:
+        from novel_translator.openrouter import OPENROUTER_TIMEOUT_SECONDS
 
         seen = {}
 
@@ -374,15 +374,15 @@ class TranslatorAppTests(unittest.TestCase):
             raise TimeoutError("The read operation timed out")
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            settings, "DEEPSEEK_FAILURE_LOG", Path(tmp) / "deepseek_failures.jsonl"
+            settings, "LLM_FAILURE_LOG", Path(tmp) / "llm_failures.jsonl"
         ):
             with self.assertRaises(app.AppError):
-                app.call_deepseek("secret", "deepseek-v4-flash", [], fake_opener)
+                app.call_openrouter("secret", "deepseek-v4-flash", [], fake_opener)
 
-        self.assertEqual(DEEPSEEK_TIMEOUT_SECONDS, 300)
+        self.assertEqual(OPENROUTER_TIMEOUT_SECONDS, 300)
         self.assertEqual(seen["timeout"], 300)
 
-    def test_call_deepseek_uses_openrouter_model_id_with_same_parameters(self) -> None:
+    def test_call_openrouter_uses_configured_openrouter_model_id_with_same_parameters(self) -> None:
         seen = {}
 
         class FakeResponse:
@@ -401,7 +401,13 @@ class TranslatorAppTests(unittest.TestCase):
             seen["authorization"] = request.headers["Authorization"]
             return FakeResponse()
 
-        app.call_deepseek("secret", "mimo-v2.5-pro", [{"role": "user", "content": "Hi"}], fake_opener)
+        app.call_openrouter(
+            "secret",
+            "xiaomi/mimo-v2.5-pro",
+            [{"role": "user", "content": "Hi"}],
+            "xiaomi",
+            fake_opener,
+        )
 
         self.assertEqual(seen["url"], settings.OPENROUTER_URL)
         self.assertEqual(seen["authorization"], "Bearer secret")
@@ -422,7 +428,7 @@ class TranslatorAppTests(unittest.TestCase):
             },
         )
 
-    def test_call_deepseek_pins_custom_model_provider(self) -> None:
+    def test_call_openrouter_pins_custom_model_provider(self) -> None:
         seen = {}
 
         class FakeResponse:
@@ -439,7 +445,7 @@ class TranslatorAppTests(unittest.TestCase):
             seen["payload"] = json.loads(request.data.decode("utf-8"))
             return FakeResponse()
 
-        app.call_deepseek(
+        app.call_openrouter(
             "secret",
             "anthropic/claude-sonnet-4.5",
             [{"role": "user", "content": "Hi"}],
@@ -453,7 +459,7 @@ class TranslatorAppTests(unittest.TestCase):
             {"only": ["anthropic"], "allow_fallbacks": False},
         )
 
-    def test_call_deepseek_retries_without_json_object_and_remembers_model_provider(self) -> None:
+    def test_call_openrouter_retries_without_json_object_and_remembers_model_provider(self) -> None:
         payloads = []
 
         class FakeResponse:
@@ -489,14 +495,14 @@ class TranslatorAppTests(unittest.TestCase):
                 )
             return FakeResponse()
 
-        app.call_deepseek(
+        app.call_openrouter(
             "secret",
             "test/json-object-memory",
             [{"role": "user", "content": "Hi"}],
             "test-provider",
             fake_opener,
         )
-        app.call_deepseek(
+        app.call_openrouter(
             "secret",
             "test/json-object-memory",
             [{"role": "user", "content": "Hi"}],
@@ -561,15 +567,17 @@ class TranslatorAppTests(unittest.TestCase):
             saved = app.save_config(
                 {
                     "openrouter_api_key": "secret",
-                    "translation_model": "mimo-v2.5",
-                    "glossary_model": "mimo-v2.5-pro",
+                    "translation_model": "xiaomi/mimo-v2.5",
+                    "translation_provider": "xiaomi",
+                    "glossary_model": "xiaomi/mimo-v2.5-pro",
+                    "glossary_provider": "xiaomi",
                 }
             )
 
         self.assertEqual(saved["openrouter_api_key"], "secret")
-        self.assertEqual(saved["translation_model"], "mimo-v2.5")
+        self.assertEqual(saved["translation_model"], "xiaomi/mimo-v2.5")
         self.assertEqual(saved["translation_provider"], "xiaomi")
-        self.assertEqual(saved["glossary_model"], "mimo-v2.5-pro")
+        self.assertEqual(saved["glossary_model"], "xiaomi/mimo-v2.5-pro")
         self.assertEqual(saved["glossary_provider"], "xiaomi")
 
     def test_save_config_accepts_custom_models_providers_and_favorites(self) -> None:
@@ -647,8 +655,8 @@ class TranslatorAppTests(unittest.TestCase):
             )
 
         self.assertEqual(saved["openrouter_api_key"], "openrouter-secret")
-        self.assertEqual(saved["translation_model"], "deepseek-v4-pro")
-        self.assertEqual(saved["glossary_model"], "mimo-v2.5")
+        self.assertEqual(saved["translation_model"], "deepseek/deepseek-v4-pro")
+        self.assertEqual(saved["glossary_model"], "xiaomi/mimo-v2.5")
 
     def test_save_config_preserves_omitted_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -669,7 +677,7 @@ class TranslatorAppTests(unittest.TestCase):
             )
 
         self.assertEqual(saved["openrouter_api_key"], "openrouter-secret")
-        self.assertEqual(saved["translation_model"], "mimo-v2.5-pro")
+        self.assertEqual(saved["translation_model"], "xiaomi/mimo-v2.5-pro")
 
     def test_parse_translation_response_rejects_untranslated_chinese(self) -> None:
         payload = {
@@ -772,7 +780,7 @@ class TranslatorAppTests(unittest.TestCase):
             pending: list[dict[str, str]] = []
 
             def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
-                self.assertEqual(model, "deepseek-v4-pro")
+                self.assertEqual(model, "deepseek/deepseek-v4-pro")
                 return {
                     "glossary_updates": [
                         {
@@ -1005,7 +1013,7 @@ class TranslatorAppTests(unittest.TestCase):
                         deferred_existing_glossary_updates is not None,
                     )
                 )
-                raise app.AppError("DeepSeek message was not valid glossary JSON.", 502)
+                raise app.AppError("Model message was not valid glossary JSON.", 502)
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
                 bulk_translate, "translate_chapter", fake_translate
@@ -1196,7 +1204,7 @@ class TranslatorAppTests(unittest.TestCase):
                         "gender_or_pronoun": "male",
                     }
                 )
-                raise app.AppError("DeepSeek message was not valid glossary JSON.", 502)
+                raise app.AppError("Model message was not valid glossary JSON.", 502)
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
                 settings, "OUTPUT_ROOT", output
@@ -1363,7 +1371,7 @@ class TranslatorAppTests(unittest.TestCase):
             def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
                 self.assertEqual(api_key, "secret")
                 calls.append(model)
-                if model == "deepseek-v4-pro":
+                if model == "deepseek/deepseek-v4-pro":
                     return {
                         "glossary_updates": [
                             {
@@ -1374,7 +1382,7 @@ class TranslatorAppTests(unittest.TestCase):
                             }
                         ]
                     }
-                self.assertEqual(model, "deepseek-v4-flash")
+                self.assertEqual(model, "deepseek/deepseek-v4-flash")
                 return {
                     "translated_title": "Chapter 1",
                     "translated_body": "The Taixuan Realm.",
@@ -1394,7 +1402,7 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertIn("The Taixuan Realm.", written.read_text(encoding="utf-8"))
             self.assertEqual(result["glossary"][0]["source_term"], "太玄界")
             self.assertEqual(len(json.loads(glossary.read_text(encoding="utf-8"))), 1)
-            self.assertEqual(calls, ["deepseek-v4-pro", "deepseek-v4-flash"])
+            self.assertEqual(calls, ["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash"])
 
     def test_translate_only_skips_glossary_population(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1454,7 +1462,7 @@ class TranslatorAppTests(unittest.TestCase):
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
                 )
 
-            self.assertEqual(calls, ["deepseek-v4-flash"])
+            self.assertEqual(calls, ["deepseek/deepseek-v4-flash"])
 
     def test_translate_only_retries_invalid_translation_json_by_continuing_chat(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1468,7 +1476,7 @@ class TranslatorAppTests(unittest.TestCase):
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
             glossary = glossaries / "Book" / "glossary" / "glossary.json"
-            failure_log = root / "deepseek_failures.jsonl"
+            failure_log = root / "llm_failures.jsonl"
             glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
@@ -1509,7 +1517,7 @@ class TranslatorAppTests(unittest.TestCase):
             ), patch.object(
                 settings, "GLOSSARY_ROOT", glossaries
             ), patch.object(
-                settings, "DEEPSEEK_FAILURE_LOG", failure_log
+                settings, "LLM_FAILURE_LOG", failure_log
             ):
                 result = app.translate_chapter(
                     "Book", "001_第1章.txt", fake_call, populate_glossary=False
@@ -1548,7 +1556,7 @@ class TranslatorAppTests(unittest.TestCase):
             config = root / "translator_config.json"
             global_glossary = root / "glossary.json"
             glossary = glossaries / "Book" / "glossary" / "glossary.json"
-            failure_log = root / "deepseek_failures.jsonl"
+            failure_log = root / "llm_failures.jsonl"
             glossary.parent.mkdir(parents=True)
             config.write_text(
                 json.dumps(
@@ -1595,7 +1603,7 @@ class TranslatorAppTests(unittest.TestCase):
             ), patch.object(
                 settings, "GLOSSARY_ROOT", glossaries
             ), patch.object(
-                settings, "DEEPSEEK_FAILURE_LOG", failure_log
+                settings, "LLM_FAILURE_LOG", failure_log
             ):
                 result = app.populate_glossary_for_chapter("Book", "001_第1章.txt", fake_call)
 
@@ -1647,7 +1655,7 @@ class TranslatorAppTests(unittest.TestCase):
             def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
                 calls.append(json.dumps(messages, ensure_ascii=False))
                 if len(calls) == 1:
-                    raise app.AppError("DeepSeek request timed out.", 502)
+                    raise app.AppError("OpenRouter request timed out.", 502)
                 if len(calls) == 2:
                     return {"choices": [{"message": {"content": "not json"}}]}
                 return {

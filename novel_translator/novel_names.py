@@ -6,7 +6,7 @@ from typing import Any, Callable
 from . import settings
 from .chapters import safe_segment
 from .config import load_config
-from .deepseek import call_deepseek
+from .openrouter import call_openrouter
 from .errors import AppError
 from .json_store import read_json, write_json
 from .source_language import contains_source_language_text
@@ -55,11 +55,11 @@ def ensure_translated_novel_name(
     if not api_key:
         return safe_novel
 
-    call_api = call_api or call_deepseek
+    call_api = call_api or call_openrouter
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)
     messages = build_novel_name_messages(safe_novel)
-    if call_api is call_deepseek:
+    if call_api is call_openrouter:
         response = call_api(api_key, config["translation_model"], messages, config["translation_provider"])
     else:
         response = call_api(api_key, config["translation_model"], messages)
@@ -102,11 +102,11 @@ def parse_novel_name_response(data: dict[str, Any]) -> str:
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AppError("DeepSeek response did not include novel title content.", 502) from exc
+            raise AppError("Model response did not include novel title content.", 502) from exc
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
-            raise AppError("DeepSeek message was not valid novel title JSON.", 502) from exc
+            raise AppError("Model message was not valid novel title JSON.", 502) from exc
 
     translated_name = data.get("translated_name")
     if not isinstance(translated_name, str) or not translated_name.strip():

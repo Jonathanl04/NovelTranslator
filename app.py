@@ -13,10 +13,10 @@ from novel_translator.chapters import (
     write_translation,
 )
 from novel_translator.config import load_config, mask_key, public_config, safe_file_stem, save_config
-from novel_translator.deepseek import call_deepseek, openrouter_model_providers
+from novel_translator.openrouter import call_openrouter, openrouter_model_providers
 from novel_translator.epub import build_translated_epub
 from novel_translator.errors import AppError
-from novel_translator.failure_log import log_deepseek_failure
+from novel_translator.failure_log import log_llm_failure
 from novel_translator.glossary import (
     glossary_path,
     glossary_prompt,
@@ -37,13 +37,11 @@ from novel_translator.server import Handler, first, main
 from novel_translator.settings import (
     ALLOWED_GENDERS,
     CONFIG_PATH,
-    DEEPSEEK_URL,
     DEFAULT_GLOSSARY_MODEL,
     DEFAULT_TRANSLATION_MODEL,
     FRONTEND_DIST,
     GLOSSARY_PATH,
     GLOSSARY_ROOT,
-    MODELS,
     OPENROUTER_URL,
     OUTPUT_ROOT,
     ROOT,
@@ -72,7 +70,7 @@ from novel_translator.translation import (
     response_message_content,
     translate_chapter,
 )
-from novel_translator.usage import current_usage, record_deepseek_usage, reset_usage
+from novel_translator.usage import current_usage, record_llm_usage, reset_usage
 
 
 if __name__ == "__main__":

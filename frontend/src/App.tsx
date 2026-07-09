@@ -39,11 +39,17 @@ const BOOKS_PER_PAGE = 12;
 const emptyConfig: Config = {
   has_openrouter_api_key: false,
   openrouter_api_key_mask: "",
-  translation_model: "deepseek-v4-flash",
+  translation_model: "deepseek/deepseek-v4-flash",
   translation_provider: "deepseek",
-  glossary_model: "deepseek-v4-flash",
+  glossary_model: "deepseek/deepseek-v4-flash",
   glossary_provider: "deepseek",
   favorite_models: [],
+  model_presets: [
+    { model: "deepseek/deepseek-v4-flash", provider: "deepseek" },
+    { model: "deepseek/deepseek-v4-pro", provider: "deepseek" },
+    { model: "xiaomi/mimo-v2.5", provider: "xiaomi" },
+    { model: "xiaomi/mimo-v2.5-pro", provider: "xiaomi" },
+  ],
 };
 
 const emptyUsage: Usage = {

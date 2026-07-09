@@ -18,14 +18,22 @@ def load_config() -> dict[str, Any]:
     glossary_model = str(config.get("glossary_model", settings.DEFAULT_GLOSSARY_MODEL)).strip()
     translation_model = translation_model or settings.DEFAULT_TRANSLATION_MODEL
     glossary_model = glossary_model or settings.DEFAULT_GLOSSARY_MODEL
+    translation_provider = provider_for_config(
+        config, "translation_provider", settings.DEFAULT_TRANSLATION_PROVIDER
+    )
+    glossary_provider = provider_for_config(
+        config, "glossary_provider", settings.DEFAULT_GLOSSARY_PROVIDER
+    )
+    translation_model, translation_provider = normalize_preset_model(
+        translation_model, translation_provider
+    )
+    glossary_model, glossary_provider = normalize_preset_model(glossary_model, glossary_provider)
     return {
         "openrouter_api_key": openrouter_api_key,
         "translation_model": translation_model,
-        "translation_provider": provider_for_config(
-            config, "translation_provider", translation_model
-        ),
+        "translation_provider": translation_provider,
         "glossary_model": glossary_model,
-        "glossary_provider": provider_for_config(config, "glossary_provider", glossary_model),
+        "glossary_provider": glossary_provider,
         "favorite_models": normalize_favorites(config.get("favorite_models", [])),
     }
 
@@ -59,6 +67,10 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
         raise AppError("Models are required.")
     if not translation_provider or not glossary_provider:
         raise AppError("Model providers are required.")
+    translation_model, translation_provider = normalize_preset_model(
+        translation_model, translation_provider
+    )
+    glossary_model, glossary_provider = normalize_preset_model(glossary_model, glossary_provider)
     saved = {
         "openrouter_api_key": openrouter_api_key,
         "translation_model": translation_model,
@@ -81,6 +93,7 @@ def public_config() -> dict[str, Any]:
         "glossary_model": config["glossary_model"],
         "glossary_provider": config["glossary_provider"],
         "favorite_models": config["favorite_models"],
+        "model_presets": settings.DEFAULT_MODEL_PRESETS,
     }
 
 
@@ -99,16 +112,12 @@ def safe_file_stem(value: str) -> str:
     return stem
 
 
-def provider_for_config(config: dict[str, Any], key: str, model: str) -> str:
-    if model in settings.MODEL_PROVIDER_IDS:
-        return settings.MODEL_PROVIDER_IDS[model]
+def provider_for_config(config: dict[str, Any], key: str, default_provider: str) -> str:
     provider = str(config.get(key, "")).strip()
-    return provider
+    return provider or default_provider
 
 
 def selected_provider(config: dict[str, Any], key: str, model: str, current_provider: str) -> str:
-    if model in settings.MODEL_PROVIDER_IDS:
-        return settings.MODEL_PROVIDER_IDS[model]
     if key not in config:
         return current_provider
     return str(config.get(key, "")).strip()
@@ -130,3 +139,20 @@ def normalize_favorites(value: Any) -> list[dict[str, str]]:
         seen.add(key)
         favorites.append({"model": model, "provider": provider})
     return favorites
+
+
+def normalize_preset_model(model: str, provider: str) -> tuple[str, str]:
+    suffix_matches = [
+        preset
+        for preset in settings.DEFAULT_MODEL_PRESETS
+        if model == preset["model"].rsplit("/", 1)[-1]
+    ]
+    if len(suffix_matches) == 1:
+        preset = suffix_matches[0]
+        return preset["model"], preset["provider"]
+    for preset in settings.DEFAULT_MODEL_PRESETS:
+        preset_model = preset["model"]
+        preset_provider = preset["provider"]
+        if model == preset_model:
+            return model, provider or preset_provider
+    return model, provider

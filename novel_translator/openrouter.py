@@ -7,17 +7,17 @@ from typing import Any
 
 from . import settings
 from .errors import AppError
-from .failure_log import log_deepseek_failure
-from .usage import record_deepseek_usage
+from .failure_log import log_llm_failure
+from .usage import record_llm_usage
 
 
-DEEPSEEK_TIMEOUT_SECONDS = 300
-DEEPSEEK_TIMEOUT_MESSAGE = "DeepSeek request timed out."
+OPENROUTER_TIMEOUT_SECONDS = 300
+OPENROUTER_TIMEOUT_MESSAGE = "OpenRouter request timed out."
 _json_object_unsupported: set[tuple[str, str]] = set()
 _response_format_lock = threading.Lock()
 
 
-def call_deepseek(
+def call_openrouter(
     api_key: str,
     model: str,
     messages: list[dict[str, str]],
@@ -27,9 +27,8 @@ def call_deepseek(
     if callable(provider):
         opener = provider
         provider = ""
-    provider = provider or settings.MODEL_PROVIDER_IDS.get(model, "")
     payload = {
-        "model": settings.MODEL_API_IDS.get(model, model),
+        "model": model,
         "messages": messages,
         "temperature": 1,
         "stream": False,
@@ -57,11 +56,11 @@ def post_openrouter(api_key: str, usage_model: str, payload: dict[str, Any], ope
         method="POST",
     )
     try:
-        with opener(request, timeout=DEEPSEEK_TIMEOUT_SECONDS) as response:
+        with opener(request, timeout=OPENROUTER_TIMEOUT_SECONDS) as response:
             raw = response.read().decode("utf-8")
     except TimeoutError as exc:
-        log_deepseek_failure("timeout", payload, str(exc) or DEEPSEEK_TIMEOUT_MESSAGE)
-        raise AppError(DEEPSEEK_TIMEOUT_MESSAGE, 502) from exc
+        log_llm_failure("timeout", payload, str(exc) or OPENROUTER_TIMEOUT_MESSAGE)
+        raise AppError(OPENROUTER_TIMEOUT_MESSAGE, 502) from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         if should_retry_without_json_object(payload, detail):
@@ -69,23 +68,23 @@ def post_openrouter(api_key: str, usage_model: str, payload: dict[str, Any], ope
             retry_payload = dict(payload)
             retry_payload.pop("response_format", None)
             return post_openrouter(api_key, usage_model, retry_payload, opener)
-        log_deepseek_failure("http_error", payload, f"HTTP {exc.code}", raw_response=detail)
-        raise AppError(f"DeepSeek request failed: HTTP {exc.code} {detail}", 502) from exc
+        log_llm_failure("http_error", payload, f"HTTP {exc.code}", raw_response=detail)
+        raise AppError(f"OpenRouter request failed: HTTP {exc.code} {detail}", 502) from exc
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, TimeoutError):
-            log_deepseek_failure("timeout", payload, str(exc.reason) or DEEPSEEK_TIMEOUT_MESSAGE)
-            raise AppError(DEEPSEEK_TIMEOUT_MESSAGE, 502) from exc
-        log_deepseek_failure("url_error", payload, str(exc.reason))
-        raise AppError(f"DeepSeek request failed: {exc.reason}", 502) from exc
+            log_llm_failure("timeout", payload, str(exc.reason) or OPENROUTER_TIMEOUT_MESSAGE)
+            raise AppError(OPENROUTER_TIMEOUT_MESSAGE, 502) from exc
+        log_llm_failure("url_error", payload, str(exc.reason))
+        raise AppError(f"OpenRouter request failed: {exc.reason}", 502) from exc
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        log_deepseek_failure("invalid_api_json", payload, str(exc), raw_response=raw)
-        raise AppError("DeepSeek returned invalid API JSON.", 502) from exc
+        log_llm_failure("invalid_api_json", payload, str(exc), raw_response=raw)
+        raise AppError("OpenRouter returned invalid API JSON.", 502) from exc
 
     if isinstance(data, dict):
-        record_deepseek_usage(usage_model, data)
+        record_llm_usage(usage_model, data)
     return data
 
 
@@ -127,7 +126,7 @@ def openrouter_model_providers(
     model = model.strip()
     if not model:
         raise AppError("model is required.")
-    encoded_model = urllib.parse.quote(settings.MODEL_API_IDS.get(model, model), safe="/")
+    encoded_model = urllib.parse.quote(model, safe="/")
     request = urllib.request.Request(
         f"https://openrouter.ai/api/v1/models/{encoded_model}/endpoints",
         headers=openrouter_headers(api_key),

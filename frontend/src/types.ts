@@ -16,6 +16,7 @@ export type Config = {
   glossary_model: string;
   glossary_provider: string;
   favorite_models: FavoriteModel[];
+  model_presets: FavoriteModel[];
 };
 
 export type Chapter = {

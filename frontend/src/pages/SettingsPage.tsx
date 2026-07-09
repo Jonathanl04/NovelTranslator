@@ -14,13 +14,6 @@ import {
 import type { Config, FavoriteModel, OpenRouterProvider, Usage } from "@/types";
 import { UsageSummary } from "./shared";
 
-const BUILT_IN_MODELS: FavoriteModel[] = [
-  { model: "deepseek-v4-flash", provider: "deepseek" },
-  { model: "deepseek-v4-pro", provider: "deepseek" },
-  { model: "mimo-v2.5", provider: "xiaomi" },
-  { model: "mimo-v2.5-pro", provider: "xiaomi" },
-];
-
 export function SettingsPage({
   openrouterApiKey,
   config,
@@ -84,7 +77,7 @@ export function SettingsPage({
   }
 
   function applyFavorite(kind: "glossary" | "translation", indexValue: string) {
-    const favorite = modelChoices(config.favorite_models)[Number(indexValue)];
+    const favorite = modelChoices(config)[Number(indexValue)];
     if (!favorite) return;
     setProviders((current) => ({ ...current, [kind]: [] }));
     if (kind === "glossary") {
@@ -136,7 +129,7 @@ export function SettingsPage({
               model={config.glossary_model}
               provider={config.glossary_provider}
               providers={providers.glossary}
-              favorites={modelChoices(config.favorite_models)}
+              choices={modelChoices(config)}
               loading={loadingProviders === "glossary"}
               onModelChange={(glossary_model) => {
                 setProviders((current) => ({ ...current, glossary: [] }));
@@ -153,7 +146,7 @@ export function SettingsPage({
               model={config.translation_model}
               provider={config.translation_provider}
               providers={providers.translation}
-              favorites={modelChoices(config.favorite_models)}
+              choices={modelChoices(config)}
               loading={loadingProviders === "translation"}
               onModelChange={(translation_model) => {
                 setProviders((current) => ({ ...current, translation: [] }));
@@ -172,13 +165,13 @@ export function SettingsPage({
               <div className="grid gap-1.5">
                 {config.favorite_models.map((favorite, index) => (
                   <div key={`${favorite.provider}:${favorite.model}`} className="flex min-w-0 items-center gap-2 rounded-md border p-2 text-xs">
-                    <span className="min-w-0 flex-1 truncate font-medium">{favoriteLabel(favorite)}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium">{modelLabel(favorite)}</span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => removeFavorite(index)}
-                      aria-label={`Remove ${favoriteLabel(favorite)}`}
+                      aria-label={`Remove ${modelLabel(favorite)}`}
                       title="Remove favorite"
                     >
                       <Trash2 />
@@ -219,7 +212,7 @@ function ModelProviderEditor({
   model,
   provider,
   providers,
-  favorites,
+  choices,
   loading,
   onModelChange,
   onProviderChange,
@@ -232,7 +225,7 @@ function ModelProviderEditor({
   model: string;
   provider: string;
   providers: OpenRouterProvider[];
-  favorites: FavoriteModel[];
+  choices: FavoriteModel[];
   loading: boolean;
   onModelChange: (value: string) => void;
   onProviderChange: (value: string) => void;
@@ -241,27 +234,28 @@ function ModelProviderEditor({
   onApplyFavorite: (index: string) => void;
 }) {
   const canFavorite = Boolean(model.trim() && provider.trim());
-  const choices = ensureChoice(favorites, { model, provider });
-  const currentChoiceIndex = choices.findIndex((favorite) => favorite.model === model && favorite.provider === provider);
-  const currentChoice = currentChoiceIndex >= 0 ? String(currentChoiceIndex) : "";
 
   return (
     <div className="grid gap-3 rounded-md border p-3">
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${kind}-model-settings`}>{title}</Label>
-        <Select value={currentChoice} onValueChange={onApplyFavorite}>
-          <SelectTrigger id={`${kind}-model-choice-settings`} className="w-full bg-background">
-            <SelectValue placeholder="Select saved model" />
-          </SelectTrigger>
-          <SelectContent>
-            {choices.map((favorite, index) => (
-              <SelectItem key={`${favorite.provider}:${favorite.model}`} value={String(index)}>
-                {favoriteLabel(favorite)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {choices.length > 0 ? (
+        <div className="grid gap-1.5">
+          <Label htmlFor={`${kind}-saved-model-settings`}>{title}</Label>
+          <Select value="" onValueChange={onApplyFavorite}>
+            <SelectTrigger id={`${kind}-saved-model-settings`} className="w-full bg-background">
+              <SelectValue placeholder="Apply favorite" />
+            </SelectTrigger>
+            <SelectContent>
+              {choices.map((favorite, index) => (
+                <SelectItem key={`${favorite.provider}:${favorite.model}`} value={String(index)}>
+                  {modelLabel(favorite)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : (
+        <div className="text-sm font-semibold">{title}</div>
+      )}
       <div className="grid gap-1.5">
         <Label htmlFor={`${kind}-custom-model-settings`}>Model ID</Label>
         <Input
@@ -297,6 +291,11 @@ function ModelProviderEditor({
           </SelectContent>
         </Select>
       </div> : null}
+      {providers.length === 0 && provider.trim() ? (
+        <div className="text-xs text-muted-foreground">
+          Provider: <span className="font-medium text-foreground">{provider}</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -308,23 +307,12 @@ function mergeFavorites(favorites: FavoriteModel[], favorite: FavoriteModel) {
   return [...favorites, favorite];
 }
 
-function favoriteLabel(favorite: FavoriteModel) {
-  return `${favorite.provider} / ${favorite.model}`;
+function modelLabel(favorite: FavoriteModel) {
+  return `${favorite.model} (${favorite.provider})`;
 }
 
-function modelChoices(favorites: FavoriteModel[]) {
-  return mergeFavoriteLists(BUILT_IN_MODELS, favorites);
-}
-
-function ensureChoice(favorites: FavoriteModel[], current: FavoriteModel) {
-  if (!current.model.trim() || !current.provider.trim()) {
-    return favorites;
-  }
-  return mergeFavoriteLists(favorites, [current]);
-}
-
-function mergeFavoriteLists(first: FavoriteModel[], second: FavoriteModel[]) {
-  return [...first, ...second].reduce<FavoriteModel[]>((items, favorite) => {
+function modelChoices(config: Config) {
+  return [...config.model_presets, ...config.favorite_models].reduce<FavoriteModel[]>((items, favorite) => {
     return mergeFavorites(items, favorite);
   }, []);
 }

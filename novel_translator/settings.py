@@ -9,26 +9,16 @@ CONFIG_PATH = Path(os.environ.get("NOVEL_TRANSLATOR_CONFIG_PATH", DATA_ROOT / "t
 GLOSSARY_PATH = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_PATH", DATA_ROOT / "glossary.json"))
 GLOSSARY_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_GLOSSARY_ROOT", DATA_ROOT))
 FRONTEND_DIST = ROOT / "frontend" / "dist"
-DEEPSEEK_FAILURE_LOG = Path(
-    os.environ.get("NOVEL_TRANSLATOR_FAILURE_LOG", DATA_ROOT / "logs" / "deepseek_failures.jsonl")
-)
+LLM_FAILURE_LOG = Path(os.environ.get("NOVEL_TRANSLATOR_FAILURE_LOG", DATA_ROOT / "logs" / "llm_failures.jsonl"))
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEEPSEEK_URL = OPENROUTER_URL
-DEFAULT_TRANSLATION_MODEL = "deepseek-v4-flash"
-DEFAULT_GLOSSARY_MODEL = "deepseek-v4-flash"
-OPENROUTER_MODEL_API_IDS = {
-    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
-    "deepseek-v4-pro": "deepseek/deepseek-v4-pro",
-    "mimo-v2.5": "xiaomi/mimo-v2.5",
-    "mimo-v2.5-pro": "xiaomi/mimo-v2.5-pro",
-}
-OPENROUTER_MODEL_PROVIDER_IDS = {
-    "deepseek-v4-flash": "deepseek",
-    "deepseek-v4-pro": "deepseek",
-    "mimo-v2.5": "xiaomi",
-    "mimo-v2.5-pro": "xiaomi",
-}
-MODEL_API_IDS = OPENROUTER_MODEL_API_IDS
-MODEL_PROVIDER_IDS = OPENROUTER_MODEL_PROVIDER_IDS
-MODELS = set(MODEL_API_IDS)
+DEFAULT_MODEL_PRESETS = [
+    {"model": "deepseek/deepseek-v4-flash", "provider": "deepseek"},
+    {"model": "deepseek/deepseek-v4-pro", "provider": "deepseek"},
+    {"model": "xiaomi/mimo-v2.5", "provider": "xiaomi"},
+    {"model": "xiaomi/mimo-v2.5-pro", "provider": "xiaomi"},
+]
+DEFAULT_TRANSLATION_MODEL = DEFAULT_MODEL_PRESETS[0]["model"]
+DEFAULT_TRANSLATION_PROVIDER = DEFAULT_MODEL_PRESETS[0]["provider"]
+DEFAULT_GLOSSARY_MODEL = DEFAULT_MODEL_PRESETS[0]["model"]
+DEFAULT_GLOSSARY_PROVIDER = DEFAULT_MODEL_PRESETS[0]["provider"]
 ALLOWED_GENDERS = {"", "male", "female", "it"}

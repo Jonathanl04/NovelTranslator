@@ -4,18 +4,18 @@ from typing import Any, Callable
 
 from .chapters import source_path, split_chapter, write_translation
 from .config import load_config
-from .deepseek import DEEPSEEK_TIMEOUT_MESSAGE, call_deepseek
+from .openrouter import OPENROUTER_TIMEOUT_MESSAGE, call_openrouter
 from .errors import AppError
-from .failure_log import log_deepseek_failure
+from .failure_log import log_llm_failure
 from .glossary import glossary_path, glossary_prompt, load_glossary, merge_glossary_entries
 from .json_store import write_json
 from .source_language import contains_source_language_text, source_language_fragments
 
 state_lock = threading.Lock()
 TRANSLATION_JSON_RETRIES = 2
-INVALID_TRANSLATION_JSON_MESSAGE = "DeepSeek message was not valid translation JSON."
-INVALID_GLOSSARY_JSON_MESSAGE = "DeepSeek message was not valid glossary JSON."
-INCOMPLETE_TRANSLATION_MESSAGE = "DeepSeek returned an incomplete translation."
+INVALID_TRANSLATION_JSON_MESSAGE = "Model message was not valid translation JSON."
+INVALID_GLOSSARY_JSON_MESSAGE = "Model message was not valid glossary JSON."
+INCOMPLETE_TRANSLATION_MESSAGE = "Model returned an incomplete translation."
 MIN_SOURCE_LENGTH_FOR_INCOMPLETE_TRANSLATION_CHECK = 200
 MIN_TRANSLATION_TO_SOURCE_RATIO = 0.8
 MIN_TRANSLATION_LENGTH_FOR_FULL_CHAPTER = 200
@@ -170,12 +170,12 @@ def configured_api_call(
     messages: list[dict[str, str]],
     provider: str = "",
 ) -> dict[str, Any]:
-    if provider and call_api is call_deepseek:
+    if provider and call_api is call_openrouter:
         return call_api(api_key, model, messages, provider)
     return call_api(api_key, model, messages)
 
 
-def deepseek_request_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+def llm_request_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "model": model,
         "messages": messages,
@@ -193,11 +193,11 @@ def log_parse_failure(
     response: dict[str, Any],
     error: AppError,
 ) -> None:
-    log_deepseek_failure(event, deepseek_request_payload(model, messages), str(error), response=response)
+    log_llm_failure(event, llm_request_payload(model, messages), str(error), response=response)
 
 
 def is_retryable_translation_timeout(error: AppError) -> bool:
-    return DEEPSEEK_TIMEOUT_MESSAGE in str(error)
+    return OPENROUTER_TIMEOUT_MESSAGE in str(error)
 
 
 def parse_translation_response(data: dict[str, Any], source_body: str = "") -> dict[str, Any]:
@@ -205,11 +205,11 @@ def parse_translation_response(data: dict[str, Any], source_body: str = "") -> d
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AppError("DeepSeek response did not include message content.", 502) from exc
+            raise AppError("Model response did not include message content.", 502) from exc
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
-            raise AppError("DeepSeek message was not valid translation JSON.", 502) from exc
+            raise AppError("Model message was not valid translation JSON.", 502) from exc
 
     title = data.get("translated_title")
     body = data.get("translated_body")
@@ -247,7 +247,7 @@ def response_message_content(data: dict[str, Any]) -> str:
         try:
             return str(data["choices"][0]["message"]["content"])
         except (KeyError, IndexError, TypeError) as exc:
-            raise AppError("DeepSeek response did not include message content.", 502) from exc
+            raise AppError("Model response did not include message content.", 502) from exc
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -334,11 +334,11 @@ def parse_fragment_replacements(data: dict[str, Any]) -> dict[str, str]:
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AppError("DeepSeek response did not include replacements.", 502) from exc
+            raise AppError("Model response did not include replacements.", 502) from exc
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
-            raise AppError("DeepSeek message was not valid replacement JSON.", 502) from exc
+            raise AppError("Model message was not valid replacement JSON.", 502) from exc
 
     replacements = data.get("replacements")
     if not isinstance(replacements, list):
@@ -393,7 +393,7 @@ def parse_glossary_response(data: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AppError("DeepSeek response did not include glossary content.", 502) from exc
+            raise AppError("Model response did not include glossary content.", 502) from exc
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
@@ -408,7 +408,7 @@ def parse_glossary_response(data: dict[str, Any]) -> list[dict[str, Any]]:
 def populate_glossary_for_chapter(
     novel: str,
     filename: str,
-    call_api: Any = call_deepseek,
+    call_api: Any = call_openrouter,
     should_abort: Callable[[], bool] | None = None,
     defer_existing_updates: bool = False,
     deferred_existing_updates: list[dict[str, Any]] | None = None,
@@ -482,7 +482,7 @@ def populate_glossary_for_chapter(
 def translate_chapter(
     novel: str,
     filename: str,
-    call_api: Any = call_deepseek,
+    call_api: Any = call_openrouter,
     populate_glossary: bool = True,
     should_abort: Callable[[], bool] | None = None,
     defer_existing_glossary_updates: bool = False,
@@ -564,9 +564,9 @@ def translate_chapter(
             )
             parsed = parse_translation_response(json.loads(compact_json))
         except (AppError, json.JSONDecodeError) as exc:
-            log_deepseek_failure(
+            log_llm_failure(
                 "fragment_repair_parse_error",
-                deepseek_request_payload(config["translation_model"], build_fragment_repair_messages(retry_messages, draft_json)),
+                llm_request_payload(config["translation_model"], build_fragment_repair_messages(retry_messages, draft_json)),
                 str(exc),
                 response=locals().get("fragment_response"),
             )

@@ -17,7 +17,7 @@ from . import settings
 from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
 from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
-from .deepseek import openrouter_model_providers
+from .openrouter import openrouter_model_providers
 from .errors import AppError
 from .epub import build_translated_epub
 from .glossary import load_glossary, save_glossary
@@ -167,6 +167,7 @@ class Handler(BaseHTTPRequestHandler):
                 "glossary_model": saved["glossary_model"],
                 "glossary_provider": saved["glossary_provider"],
                 "favorite_models": saved["favorite_models"],
+                "model_presets": settings.DEFAULT_MODEL_PRESETS,
             }
         )
 

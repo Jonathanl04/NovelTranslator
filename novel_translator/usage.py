@@ -15,7 +15,7 @@ _usage = {}
 _usage_lock = threading.Lock()
 
 
-def record_deepseek_usage(model: str, response: dict[str, Any]) -> None:
+def record_llm_usage(model: str, response: dict[str, Any]) -> None:
     usage = response.get("usage")
     if not isinstance(usage, dict):
         return
