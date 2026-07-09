@@ -9,6 +9,7 @@ import {
   Link,
   LogOut,
   Search,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ export function BooksPage({
   onScrape,
   onUseSourceUrl,
   onSelect,
+  onDelete,
   onQidianSaveCookies,
   onQidianLogout,
 }: {
@@ -67,6 +69,7 @@ export function BooksPage({
   onScrape: () => void;
   onUseSourceUrl: (novelName: string, sourceUrl: string) => void;
   onSelect: (novel: string) => void;
+  onDelete: (novel: string) => void;
   onQidianSaveCookies: (cookieStr: string) => void;
   onQidianLogout: () => void;
 }) {
@@ -183,6 +186,7 @@ export function BooksPage({
                 metadata={metadataByName[name]}
                 selected={name === selectedNovel}
                 onSelect={() => onSelect(name)}
+                onDelete={() => onDelete(name)}
                 onUseSourceUrl={metadataByName[name]?.source_url ? () => onUseSourceUrl(name, metadataByName[name].source_url || "") : undefined}
               />
             ))}
@@ -305,12 +309,14 @@ function BookCard({
   metadata,
   selected,
   onSelect,
+  onDelete,
   onUseSourceUrl,
 }: {
   name: string;
   metadata?: NovelMetadata;
   selected: boolean;
   onSelect: () => void;
+  onDelete: () => void;
   onUseSourceUrl?: () => void;
 }) {
   const displayName = metadata?.translated_name || name;
@@ -338,12 +344,19 @@ function BookCard({
           {displayName !== name && <div className="truncate text-xs text-muted-foreground">{name}</div>}
         </div>
       </button>
-      {onUseSourceUrl && (
-        <Button type="button" variant="outline" size="sm" onClick={onUseSourceUrl}>
-          <Link />
-          Use Link
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        {onUseSourceUrl ? (
+          <Button type="button" variant="outline" size="sm" onClick={onUseSourceUrl}>
+            <Link />
+            Use Link
+          </Button>
+        ) : (
+          <div />
+        )}
+        <Button type="button" variant="outline" size="icon" onClick={onDelete} title="Delete book" aria-label={`Delete ${displayName}`}>
+          <Trash2 />
         </Button>
-      )}
+      </div>
     </div>
   );
 }

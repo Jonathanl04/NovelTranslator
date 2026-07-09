@@ -172,6 +172,44 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(state["items"][0]["mode"], "name")
             self.assertEqual(state["items"][0]["status"], "pending")
 
+    def test_delete_novel_removes_source_translation_glossary_and_bulk_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            glossary = root / "glossary"
+            data = root / "data"
+            (output / "Book" / "source").mkdir(parents=True)
+            (translated / "Book" / "translated").mkdir(parents=True)
+            (glossary / "Book" / "glossary").mkdir(parents=True)
+            (data / "bulk").mkdir(parents=True)
+            (output / "Book" / "source" / "001.txt").write_text("第1章\n正文", encoding="utf-8")
+            (translated / "Book" / "translated" / "001.txt").write_text("Chapter\nBody", encoding="utf-8")
+            (glossary / "Book" / "glossary" / "glossary.json").write_text("[]", encoding="utf-8")
+            (data / "bulk" / "Book.json").write_text("{}", encoding="utf-8")
+
+            with (
+                patch.object(settings, "OUTPUT_ROOT", output),
+                patch.object(settings, "TRANSLATED_ROOT", translated),
+                patch.object(settings, "GLOSSARY_ROOT", glossary),
+                patch.object(settings, "DATA_ROOT", data),
+            ):
+                self.assertEqual(app.delete_novel("Book"), {"deleted": "Book"})
+
+            self.assertFalse((output / "Book").exists())
+            self.assertFalse((translated / "Book").exists())
+            self.assertFalse((glossary / "Book").exists())
+            self.assertFalse((data / "bulk" / "Book.json").exists())
+
+    def test_delete_novel_rejects_missing_book(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            with patch.object(settings, "OUTPUT_ROOT", output):
+                with self.assertRaises(app.AppError) as caught:
+                    app.delete_novel("Missing")
+
+            self.assertEqual(caught.exception.status, 404)
+
     def test_build_translated_epub_includes_toc_links_chapters_and_cover(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2,6 +2,7 @@ from novel_translator.bulk_translate import get_bulk_state, load_bulk_state, sav
 from novel_translator.chapters import (
     chapter_label,
     cover_path,
+    delete_novel,
     list_chapters,
     list_novels,
     novel_metadata,

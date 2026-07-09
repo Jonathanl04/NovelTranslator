@@ -18,11 +18,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  const data = await response.json();
+  const text = await response.text();
+  const data = text ? parseJsonResponse(text) : {};
   if (!response.ok) {
-    throw new Error(data.error || "Request failed");
+    throw new Error(data.error || `Request failed: HTTP ${response.status}`);
   }
   return data as T;
+}
+
+function parseJsonResponse(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
 }
 
 export const api = {
@@ -43,6 +52,8 @@ export const api = {
   novels: () => request<string[]>("/api/novels"),
   novel: (novel: string) =>
     request<NovelMetadata>(`/api/novel?novel=${encodeURIComponent(novel)}`),
+  deleteNovel: (novel: string) =>
+    request<{ deleted: string }>(`/api/novel?novel=${encodeURIComponent(novel)}`, { method: "DELETE" }),
   chapters: (novel: string) =>
     request<Chapter[]>(`/api/chapters?novel=${encodeURIComponent(novel)}`),
   scrape: (payload: { url: string; start: number; end: number }) =>

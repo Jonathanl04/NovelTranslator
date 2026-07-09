@@ -541,6 +541,39 @@ export function App() {
     }
   }
 
+  async function deleteBook(novelName: string) {
+    if (!window.confirm(`Delete "${novelDisplayName(novelName)}" and all local files for this book?`)) {
+      return;
+    }
+    try {
+      await api.deleteNovel(novelName);
+      const nextNovels = await api.novels();
+      setNovels(nextNovels);
+      setNovelMetadataByName((current) => {
+        const next = { ...current };
+        delete next[novelName];
+        return next;
+      });
+      localStorage.removeItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${novelName}`);
+      if (novelName === novel) {
+        setNovel("");
+        setNovelMetadata(null);
+        setChapters([]);
+        setSelectedFile("");
+        setSource("");
+        setTranslated("");
+        setGlossary([]);
+        setBulkItems([]);
+        setBulkSelection(new Set());
+        localStorage.removeItem(SELECTED_NOVEL_STORAGE_KEY);
+        navigate("/books");
+      }
+      showStatus(`Deleted ${novelDisplayName(novelName)}.`);
+    } catch (caught) {
+      showStatus(errorMessage(caught), true);
+    }
+  }
+
   function updateConfig(patch: Partial<Config>) {
     setConfig((current) => ({ ...current, ...patch }));
   }
@@ -805,6 +838,7 @@ export function App() {
           onScrape={runScrape}
           onUseSourceUrl={useSavedSourceUrl}
           onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
+          onDelete={(name) => deleteBook(name)}
           qidianAuth={qidianAuth}
           onQidianSaveCookies={saveQidianCookies}
           onQidianLogout={logoutQidian}

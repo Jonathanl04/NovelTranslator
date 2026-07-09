@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -32,6 +33,84 @@ def list_novels(output_root: Path | None = None) -> list[str]:
         except AppError:
             pass
     return novels
+
+
+def delete_novel(
+    novel: str,
+    output_root: Path | None = None,
+    translated_root: Path | None = None,
+    glossary_root: Path | None = None,
+) -> dict[str, str]:
+    output_root = output_root or settings.OUTPUT_ROOT
+    translated_root = translated_root or settings.TRANSLATED_ROOT
+    glossary_root = glossary_root or settings.GLOSSARY_ROOT
+    safe_novel = safe_segment(novel, "novel")
+    from .config import safe_file_stem
+
+    safe_stem = safe_file_stem(safe_novel)
+    source_root = output_root / safe_novel
+    if not (source_root / "source").is_dir():
+        raise AppError("Novel not found.", 404)
+
+    targets = [
+        source_root,
+        translated_root / safe_novel,
+        glossary_root / safe_stem,
+    ]
+    for target in unique_paths(targets):
+        remove_tree(target)
+
+    try:
+        from .bulk_translate import bulk_state_path
+        remove_file(settings.DATA_ROOT / "bulk" / f"{safe_stem}.json")
+        remove_file(bulk_state_path(safe_novel))
+    except AppError:
+        raise
+    except Exception:
+        pass
+    return {"deleted": safe_novel}
+
+
+def unique_paths(paths: list[Path]) -> list[Path]:
+    seen = set()
+    unique = []
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
+def remove_tree(path: Path) -> None:
+    if not path.exists():
+        return
+    ensure_safe_delete_path(path)
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def remove_file(path: Path) -> None:
+    if not path.exists():
+        return
+    ensure_safe_delete_path(path)
+    if path.is_file():
+        path.unlink()
+
+
+def ensure_safe_delete_path(path: Path) -> None:
+    resolved = path.resolve()
+    allowed_roots = [
+        settings.OUTPUT_ROOT.resolve(),
+        settings.TRANSLATED_ROOT.resolve(),
+        settings.GLOSSARY_ROOT.resolve(),
+        (settings.DATA_ROOT / "bulk").resolve(),
+    ]
+    if not any(resolved == root or resolved.is_relative_to(root) for root in allowed_roots):
+        raise AppError("Refusing to delete outside app data roots.", 500)
 
 
 def cover_path(novel: str, output_root: Path | None = None) -> Path | None:

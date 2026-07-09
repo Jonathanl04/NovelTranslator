@@ -15,7 +15,7 @@ from scraper.download_uukanshu import download_range as download_uukanshu_range
 
 from . import settings
 from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
-from .chapters import cover_path, list_chapters, list_novels, novel_metadata, read_chapter
+from .chapters import cover_path, delete_novel, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
 from .openrouter import openrouter_model_providers
 from .errors import AppError
@@ -45,6 +45,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self.route("POST")
 
+    def do_DELETE(self) -> None:
+        self.route("DELETE")
+
     def log_message(self, format: str, *args: Any) -> None:
         return
 
@@ -68,10 +71,15 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and parsed.path == "/api/novels":
                 self.json(list_novels())
                 return
-            if method == "GET" and parsed.path == "/api/novel":
+            if parsed.path == "/api/novel":
                 query = urllib.parse.parse_qs(parsed.query)
-                self.json(novel_metadata(first(query, "novel")))
-                return
+                if method == "GET":
+                    self.json(novel_metadata(first(query, "novel")))
+                    return
+                if method == "DELETE":
+                    self.json(delete_novel(first(query, "novel")))
+                    return
+                raise AppError("Method not allowed.", 405)
             if method == "GET" and parsed.path == "/api/cover":
                 query = urllib.parse.parse_qs(parsed.query)
                 path = cover_path(first(query, "novel"))
