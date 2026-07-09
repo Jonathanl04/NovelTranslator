@@ -10,10 +10,12 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 - Exports translated chapters to EPUB with a linked table of contents and the downloaded cover image.
 - Keeps a novel-specific glossary in `data/<novel name>/glossary/glossary.json`.
 - Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
-- Uses DeepSeek chat completions directly from the Python backend.
+- Uses OpenRouter chat completions directly from the Python backend.
+- Lets you select default OpenRouter model/provider pairs or add custom model/provider pairs in Settings.
 - Uses a Vite React frontend with shadcn/ui components.
 - Rejects translation output that still contains Chinese or Korean source-language text instead of saving partial output.
 - Runs a compact fragment-replacement repair pass when the model leaves Chinese or Korean fragments untranslated.
+- Tracks combined token usage and OpenRouter-reported cost.
 
 ## Requirements
 
@@ -58,7 +60,7 @@ Open:
 http://127.0.0.1:5173
 ```
 
-Paste your OpenRouter API key in the UI and click `Save`. The key is stored locally in `data/translator_config.json`, which is ignored by git.
+Paste your OpenRouter API key in the Settings page and click `Save API Key`. The key is stored locally in `data/translator_config.json`, which is ignored by git.
 
 ## Docker
 
@@ -90,27 +92,39 @@ Use the Settings page to configure:
 - OpenRouter API key
 - Glossary model
 - Translation model
+- Added custom models
 
 Requests use the OpenRouter chat completions API.
 
 Defaults:
 
-- Glossary: `deepseek-v4-flash`
-- Translation: `deepseek-v4-flash`
+- Glossary: `deepseek/deepseek-v4-flash` with provider `deepseek`
+- Translation: `deepseek/deepseek-v4-flash` with provider `deepseek`
 
-Supported models:
+Default model choices:
 
-- `deepseek-v4-flash`
-- `deepseek-v4-pro`
-- `mimo-v2.5`
-- `mimo-v2.5-pro`
+- `deepseek/deepseek-v4-flash` with provider `deepseek`
+- `deepseek/deepseek-v4-pro` with provider `deepseek`
+- `xiaomi/mimo-v2.5` with provider `xiaomi`
+- `xiaomi/mimo-v2.5-pro` with provider `xiaomi`
+
+To add another OpenRouter model:
+
+1. Enter the OpenRouter model ID in the separate `Add model` area, such as `tencent/hy3:free`.
+2. Click `Load providers`.
+3. Select a provider.
+4. Click `Add model`.
+
+Added models appear in the Glossary model and Translation model dropdowns. Selecting a model from either dropdown saves that active model immediately. Removing an added model also saves immediately.
 
 Using the same model for both can improve cache-hit opportunities because glossary and translation prompts share a stable prefix.
 
-Estimated cost:
+Usage and cost:
 
-- About `$0.002` per chapter for roughly `10,000` characters when using `DeepSeek Flash` or `Mimo 2.5`.
-- Actual cost may vary with chapter length, glossary size, and repair passes.
+- Token usage is shown as one combined total.
+- Cost is recorded from OpenRouter `usage.cost`, including upstream BYOK cost when OpenRouter reports it.
+- If OpenRouter omits cost, the app records `0` instead of estimating from hardcoded rates.
+- Actual cost varies with model, provider, chapter length, glossary size, and repair passes.
 
 ## Translation Flow
 
@@ -139,6 +153,17 @@ After at least one chapter has been translated, click `Export EPUB` in the novel
 - EPUB navigation metadata for compatible readers.
 - The novel cover from `data/<novel>/source/cover.<ext>` when one exists.
 
+## Book Management
+
+The Books page lists local novels from `data/<novel>/source/`.
+
+Use the trash button on a book card to delete a local book. Delete removes:
+
+- downloaded source files
+- translated chapter files
+- the book-specific glossary
+- saved bulk translation state
+
 ## Glossary Rules
 
 Glossary entries contain:
@@ -150,7 +175,7 @@ Glossary entries contain:
 
 Glossaries are novel-specific. A new novel starts with an empty glossary.
 
-The app asks DeepSeek to add only terms that need consistency, such as:
+The app asks the configured glossary model to add only terms that need consistency, such as:
 
 - character names
 - places
@@ -165,13 +190,13 @@ The app asks DeepSeek to add only terms that need consistency, such as:
 
 ```text
 app.py                 Compatibility entry point for running/importing the app
-novel_translator/      Python backend modules, local API, and DeepSeek integration
+novel_translator/      Python backend modules, local API, and OpenRouter integration
 frontend/              Vite React frontend with shadcn/ui components
 scraper/download_uukanshu.py UU看書 chapter downloader
 data/<novel>/source/   Downloaded source chapters and cover, ignored by git
 data/<novel>/translated/ Translated chapters and EPUB exports
 data/<novel>/glossary/ Novel-specific glossary files
-data/logs/             DeepSeek failure logs
+data/logs/             LLM/OpenRouter failure logs
 tests/                 Unit tests
 data/translator_config.json Local API key/model config, ignored by git
 ```
@@ -199,7 +224,7 @@ Both scrapers also save the novel cover as `cover.<ext>` in the same source dire
 Run:
 
 ```powershell
-python -m unittest
+python -m pytest tests/test_app.py -q
 cd frontend
 npm run build
 ```
