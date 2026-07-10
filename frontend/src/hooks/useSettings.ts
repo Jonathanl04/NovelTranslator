@@ -1,0 +1,78 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "@/api";
+import type { Config, Usage } from "@/types";
+import { emptyUsageBucket } from "@/pages/shared";
+
+const emptyConfig: Config = {
+  has_openrouter_api_key: false,
+  openrouter_api_key_mask: "",
+  translation_model: "deepseek/deepseek-v4-flash",
+  translation_provider: "deepseek",
+  glossary_model: "deepseek/deepseek-v4-flash",
+  glossary_provider: "deepseek",
+  added_models: [],
+  model_presets: [
+    { model: "deepseek/deepseek-v4-flash", provider: "deepseek" },
+    { model: "deepseek/deepseek-v4-pro", provider: "deepseek" },
+    { model: "xiaomi/mimo-v2.5", provider: "xiaomi" },
+    { model: "xiaomi/mimo-v2.5-pro", provider: "xiaomi" },
+  ],
+};
+
+const emptyUsage: Usage = { total: emptyUsageBucket, by_model: {} };
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function useSettings(onStatus: (message: string, isError?: boolean) => void) {
+  const [config, setConfig] = useState<Config>(emptyConfig);
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [usage, setUsage] = useState<Usage>(emptyUsage);
+  const requestVersion = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([api.config(), api.usage()])
+      .then(([nextConfig, nextUsage]) => {
+        if (!active) return;
+        setConfig(nextConfig);
+        setUsage(nextUsage);
+      })
+      .catch((error) => onStatus(errorMessage(error), true));
+    return () => { active = false; };
+  }, [onStatus]);
+
+  const save = useCallback(async (patch: Partial<Config> = {}) => {
+    const version = ++requestVersion.current;
+    const nextConfig = { ...config, ...patch };
+    const saveApiKey = Object.keys(patch).length === 0;
+    try {
+      const current = await api.config();
+      const saved = await api.saveConfig({
+        openrouter_api_key: saveApiKey && openrouterApiKey.trim() ? openrouterApiKey.trim() : undefined,
+        keep_existing_openrouter_key: !saveApiKey || (!openrouterApiKey.trim() && current.has_openrouter_api_key),
+        translation_model: nextConfig.translation_model,
+        translation_provider: nextConfig.translation_provider,
+        glossary_model: nextConfig.glossary_model,
+        glossary_provider: nextConfig.glossary_provider,
+        added_models: nextConfig.added_models,
+      });
+      if (version !== requestVersion.current) return;
+      setConfig(saved);
+      setOpenrouterApiKey("");
+      onStatus("Settings saved.");
+    } catch (error) { onStatus(errorMessage(error), true); }
+  }, [config, onStatus, openrouterApiKey]);
+
+  const resetUsage = useCallback(async () => {
+    try { setUsage(await api.resetUsage()); onStatus("Token usage reset."); }
+    catch (error) { onStatus(errorMessage(error), true); }
+  }, [onStatus]);
+
+  const updateConfig = useCallback((patch: Partial<Config>) => {
+    setConfig((current) => ({ ...current, ...patch }));
+  }, []);
+
+  return { config, openrouterApiKey, resetUsage, save, setOpenrouterApiKey, setUsage, updateConfig, usage };
+}

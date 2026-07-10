@@ -13,12 +13,10 @@ export function UsageSummary({ usage }: { usage: UsageBucket }) {
   return (
     <div className="grid gap-1 rounded-md border bg-muted/30 p-2">
       <div className="flex items-center justify-between gap-2 text-xs font-semibold">
-        <span>Total</span>
+        <span>Cost</span>
         <span className="tabular-nums">{formatUsd(usage.cost_usd)}</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-        <span>Cost</span>
-        <span className="text-right tabular-nums">{formatUsd(usage.cost_usd)}</span>
         <span>Input hit</span>
         <span className="text-right tabular-nums">{formatInteger(usage.prompt_cache_hit_tokens)}</span>
         <span>Input miss</span>

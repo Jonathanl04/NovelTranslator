@@ -12,11 +12,12 @@ from urllib.error import HTTPError
 
 import app
 from novel_translator import settings
+from novel_translator.server import acquire_server_lock, release_server_lock
 
 
 def frontend_source() -> str:
     src = Path(__file__).resolve().parents[1] / "frontend" / "src"
-    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(src.rglob("*.tsx")))
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(src.rglob("*.ts*")))
 
 
 class TranslatorAppTests(unittest.TestCase):
@@ -988,8 +989,8 @@ class TranslatorAppTests(unittest.TestCase):
 
         self.assertIn('onTranslate("full")', app_source)
         self.assertIn('onTranslate("only")', app_source)
-        self.assertIn("showStatus(describeBulkProgress(state))", app_source)
-        self.assertIn("describeBulkProgress", app_source)
+        self.assertIn("useBulkTranslation", app_source)
+        self.assertIn("Translating ${current}/${state.items.length} chapters", app_source)
 
     def test_bulk_translation_state_persists_to_disk(self) -> None:
         from novel_translator import bulk_translate
@@ -1970,6 +1971,17 @@ class TranslatorAppTests(unittest.TestCase):
 
             self.assertEqual(len(calls), 3)
             self.assertIn("escape light", result["translated"])
+
+    def test_second_server_cannot_share_an_existing_port(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "novel_translator.server.settings.DATA_ROOT", Path(temp_dir)
+        ):
+            first = acquire_server_lock(8765)
+            try:
+                with self.assertRaises(OSError):
+                    acquire_server_lock(8765)
+            finally:
+                release_server_lock(first)
 
 
 if __name__ == "__main__":

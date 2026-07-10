@@ -1,6 +1,7 @@
 import argparse
 import json
 import mimetypes
+import os
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -398,6 +399,51 @@ def main() -> None:
 
 def run_server(host: str, port: int) -> None:
     settings.TRANSLATED_ROOT.mkdir(exist_ok=True)
-    server = ThreadingHTTPServer((host, port), Handler)
-    print(f"Novel Translator running at http://{host}:{port}")
-    server.serve_forever()
+    instance_lock = acquire_server_lock(port)
+    server = None
+    try:
+        server = ThreadingHTTPServer((host, port), Handler)
+        print(f"Novel Translator running at http://{host}:{port}")
+        server.serve_forever()
+    finally:
+        if server is not None:
+            server.server_close()
+        release_server_lock(instance_lock)
+
+
+def acquire_server_lock(port: int):
+    path = settings.DATA_ROOT / f".server-{port}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    if path.stat().st_size == 0:
+        handle.write(b"0")
+        handle.flush()
+    handle.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise OSError(f"Another Novel Translator instance is already using port {port}.") from None
+    return handle
+
+
+def release_server_lock(handle) -> None:
+    try:
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()

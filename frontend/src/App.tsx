@@ -1,72 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import {
-  BookOpen,
-  ClipboardList,
-  Library,
-  Moon,
-  Settings as SettingsIcon,
-  Sun,
-  WandSparkles,
-} from "lucide-react";
 import { api } from "./api";
 import type {
   BulkItem,
-  BulkTranslationState,
   Chapter,
-  Config,
   GlossaryEntry,
   NovelMetadata,
-  QidianAuthState,
-  ScrapeState,
-  Usage,
 } from "./types";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { AppHeader } from "@/components/AppHeader";
 import { BooksPage } from "@/pages/BooksPage";
 import { GlossaryPage } from "@/pages/GlossaryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TranslatePage, type ReaderTab } from "@/pages/TranslatePage";
-import { emptyUsageBucket } from "@/pages/shared";
-
-const SELECTED_CHAPTER_STORAGE_KEY = "novel-translator:selected-chapter";
-const SELECTED_NOVEL_STORAGE_KEY = "novel-translator:selected-novel";
-
-type RoutePage = "library" | "workspace" | "glossary" | "settings";
-
-const BOOKS_PER_PAGE = 12;
-
-const emptyConfig: Config = {
-  has_openrouter_api_key: false,
-  openrouter_api_key_mask: "",
-  translation_model: "deepseek/deepseek-v4-flash",
-  translation_provider: "deepseek",
-  glossary_model: "deepseek/deepseek-v4-flash",
-  glossary_provider: "deepseek",
-  added_models: [],
-  model_presets: [
-    { model: "deepseek/deepseek-v4-flash", provider: "deepseek" },
-    { model: "deepseek/deepseek-v4-pro", provider: "deepseek" },
-    { model: "xiaomi/mimo-v2.5", provider: "xiaomi" },
-    { model: "xiaomi/mimo-v2.5-pro", provider: "xiaomi" },
-  ],
-};
-
-const emptyUsage: Usage = {
-  total: emptyUsageBucket,
-  by_model: {},
-};
-
-const emptyScrapeState: ScrapeState = {
-  running: false,
-  stage: "idle",
-  current: 0,
-  total: 0,
-  message: "",
-  novel: "",
-  result: null,
-  error: "",
-};
+import { useBulkTranslation } from "@/hooks/useBulkTranslation";
+import { useLibrary } from "@/hooks/useLibrary";
+import { useSettings } from "@/hooks/useSettings";
+import {
+  SELECTED_CHAPTER_STORAGE_KEY,
+  SELECTED_NOVEL_STORAGE_KEY,
+  cleanGlossary,
+  decodeContentDispositionFilename,
+  errorMessage,
+  glossaryPath,
+  preferredChapter,
+  routePage,
+  translatePath,
+} from "@/appUtils";
 
 export function App() {
   const location = useLocation();
@@ -75,11 +34,7 @@ export function App() {
   const page = routePage(location.pathname);
   const routeNovel = searchParams.get("book") || "";
   const routeChapter = searchParams.get("chapter") || "";
-  const [config, setConfig] = useState<Config>(emptyConfig);
-  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
-  const [novels, setNovels] = useState<string[]>([]);
   const [novelMetadata, setNovelMetadata] = useState<NovelMetadata | null>(null);
-  const [novelMetadataByName, setNovelMetadataByName] = useState<Record<string, NovelMetadata>>({});
   const [novel, setNovel] = useState("");
   const effectiveRouteNovel =
     routeNovel || (page === "glossary" ? novel || localStorage.getItem(SELECTED_NOVEL_STORAGE_KEY) || "" : "");
@@ -89,29 +44,69 @@ export function App() {
   const [translated, setTranslated] = useState("");
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [chapterSearch, setChapterSearch] = useState("");
-  const [bookSearch, setBookSearch] = useState("");
-  const [bookSort, setBookSort] = useState<"name" | "recent">("recent");
-  const [bookPage, setBookPage] = useState(1);
-  const [scrapeUrl, setScrapeUrl] = useState("");
-  const [scrapeStart, setScrapeStart] = useState("1");
-  const [scrapeEnd, setScrapeEnd] = useState("1");
-  const [scrapeState, setScrapeState] = useState<ScrapeState>(emptyScrapeState);
-  const [manualBusy, setManualBusy] = useState(false);
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [bulkAborted, setBulkAborted] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
-  const [usage, setUsage] = useState<Usage>(emptyUsage);
-  const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
-  const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
   const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
-  const [qidianAuth, setQidianAuth] = useState<QidianAuthState>({ logged_in: false });
-  const previousBulkState = useRef<BulkTranslationState | null>(null);
-  const handledScrapeResult = useRef("");
-  const configRequestVersion = useRef(0);
+  const showStatus = useCallback((message: string, isError = false) => {
+    setStatus(message);
+    setError(isError);
+  }, []);
+  const settings = useSettings(showStatus);
+  const {
+    aborted: bulkAborted,
+    abort: abortBulk,
+    clear: clearBulk,
+    items: bulkItems,
+    load: loadBulkState,
+    manualBusy,
+    running: bulkRunning,
+    selection: bulkSelection,
+    setSelection: setBulkSelection,
+    start: startBulk,
+  } = useBulkTranslation({
+    novel,
+    selectedFile,
+    onStatus: showStatus,
+    onChapters: setChapters,
+    onUsage: settings.setUsage,
+    onGlossaryRefresh: async () => {
+      if (novel) setGlossary(await api.glossary(novel));
+    },
+    onSelectedChapterRefresh: async () => {
+      if (!novel || !selectedFile) return;
+      const chapter = await api.chapter(novel, selectedFile);
+      setSource(chapter.source);
+      setTranslated(chapter.translated);
+    },
+    onMetadataRefresh: async () => {
+      if (!novel) return;
+      const metadata = await api.novel(novel);
+      setNovelMetadata(metadata);
+    },
+  });
   const busy = manualBusy || bulkRunning;
-  const scrapeBusy = scrapeState.running;
+
+  const clearSelectedBook = useCallback(() => {
+    setNovel("");
+    setNovelMetadata(null);
+    setChapters([]);
+    setSelectedFile("");
+    setSource("");
+    setTranslated("");
+    setGlossary([]);
+    clearBulk();
+    localStorage.removeItem(SELECTED_NOVEL_STORAGE_KEY);
+    navigate("/books");
+  }, [clearBulk, navigate]);
+
+  const library = useLibrary({
+    navigate,
+    selectedNovel: novel,
+    onStatus: showStatus,
+    onDeleteSelected: clearSelectedBook,
+  });
+  const loadLibraryMetadata = library.loadMetadata;
 
   const selectedChapter = useMemo(
     () => chapters.find((chapter) => chapter.filename === selectedFile),
@@ -156,42 +151,6 @@ export function App() {
     }
     return map;
   }, [bulkItems]);
-  const filteredNovels = useMemo(() => {
-    const query = bookSearch.trim().toLocaleLowerCase();
-    const matched = query
-      ? novels.filter((name) =>
-          `${name} ${novelMetadataByName[name]?.translated_name || ""}`.toLocaleLowerCase().includes(query)
-        )
-      : novels;
-    if (bookSort === "recent") {
-      return [...matched].sort(
-        (a, b) => (novelMetadataByName[b]?.updated_at || 0) - (novelMetadataByName[a]?.updated_at || 0)
-      );
-    }
-    return matched;
-  }, [bookSearch, bookSort, novelMetadataByName, novels]);
-  const bookPageCount = Math.max(1, Math.ceil(filteredNovels.length / BOOKS_PER_PAGE));
-  const paginatedNovels = useMemo(() => {
-    const start = (bookPage - 1) * BOOKS_PER_PAGE;
-    return filteredNovels.slice(start, start + BOOKS_PER_PAGE);
-  }, [bookPage, filteredNovels]);
-
-  const showStatus = useCallback((message: string, isError = false) => {
-    setStatus(message);
-    setError(isError);
-  }, []);
-
-  const novelDisplayName = useCallback(
-    (name: string) => novelMetadataByName[name]?.translated_name || name,
-    [novelMetadataByName]
-  );
-
-  const loadNovelMetadata = useCallback(async (nextNovel: string) => {
-    const metadata = await api.novel(nextNovel);
-    setNovelMetadataByName((current) => ({ ...current, [nextNovel]: metadata }));
-    return metadata;
-  }, []);
-
   const loadGlossary = useCallback(async (nextNovel: string) => {
     if (!nextNovel) {
       setGlossary([]);
@@ -212,35 +171,6 @@ export function App() {
     [showStatus]
   );
 
-  const loadBulkState = useCallback(async (nextNovel: string) => {
-    if (!nextNovel) {
-      setBulkItems([]);
-      setBulkRunning(false);
-      setBulkAborted(false);
-      setBulkSelection(new Set());
-      previousBulkState.current = null;
-      return;
-    }
-    const state = await api.bulkTranslation(nextNovel);
-    setBulkItems(state.items);
-    setBulkRunning(state.running);
-    setBulkAborted(state.aborted);
-    setBulkSelection(
-      new Set(
-        state.items
-          .filter((item) => item.status === "pending" || item.status === "translating")
-          .filter((item) => item.mode !== "name")
-          .map((item) => item.filename)
-      )
-    );
-    previousBulkState.current = state;
-    if (state.aborted) {
-      showStatus("Bulk translation aborted.");
-    } else if (state.running) {
-      showStatus(describeBulkProgress(state));
-    }
-  }, [showStatus]);
-
   const loadChapters = useCallback(
     async (nextNovel: string) => {
       setNovel(nextNovel);
@@ -260,13 +190,13 @@ export function App() {
         return [];
       }
       const nextChapters = await api.chapters(nextNovel);
-      loadNovelMetadata(nextNovel)
+      loadLibraryMetadata(nextNovel)
         .then(setNovelMetadata)
         .catch(() => setNovelMetadata(null));
       setChapters(nextChapters);
       return nextChapters;
     },
-    [loadBulkState, loadGlossary, loadNovelMetadata]
+    [loadBulkState, loadGlossary, loadLibraryMetadata]
   );
 
   const chooseNovel = useCallback(
@@ -277,42 +207,6 @@ export function App() {
     },
     [loadChapters, navigate]
   );
-
-  async function runScrape() {
-    if (scrapeBusy) return;
-    const start = Number(scrapeStart);
-    const end = Number(scrapeEnd);
-    if (!scrapeUrl.trim() || !Number.isInteger(start) || !Number.isInteger(end)) {
-      showStatus("Enter a URL and chapter range.", true);
-      return;
-    }
-    handledScrapeResult.current = "";
-    showStatus("Downloading source chapters...");
-    try {
-      setScrapeState(await api.scrape({ url: scrapeUrl.trim(), start, end }));
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
-
-  async function useSavedSourceUrl(novelName: string, sourceUrl: string) {
-    setScrapeUrl(sourceUrl);
-    navigate("/books");
-    try {
-      const novelChapters = await api.chapters(novelName);
-      const lastChapter = novelChapters.reduce((max, chapter) => {
-        const match = chapter.filename.match(/^(\d+)/);
-        const number = match ? Number(match[1]) : 0;
-        return number > max ? number : max;
-      }, 0);
-      const nextStart = lastChapter + 1;
-      setScrapeStart(String(nextStart));
-      setScrapeEnd(String(nextStart + 29));
-      showStatus(`Source URL loaded. Ready to download chapters ${nextStart}-${nextStart + 29}.`);
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
 
   useEffect(() => {
     if ((page !== "workspace" && page !== "glossary") || !effectiveRouteNovel || effectiveRouteNovel === novel) {
@@ -343,242 +237,9 @@ export function App() {
   }, [chapters, navigate, novel, page, routeChapter, routeNovel, selectChapter, selectedFile, showStatus]);
 
   useEffect(() => {
-    let active = true;
-
-    async function boot() {
-      try {
-        const [nextConfig, nextNovels, nextUsage, nextScrapeState, nextQidianAuth] = await Promise.all([
-          api.config(),
-          api.novels(),
-          api.usage(),
-          api.scrapeState(),
-          api.qidianAuth(),
-        ]);
-        if (!active) return;
-        setConfig(nextConfig);
-        setNovels(nextNovels);
-        setUsage(nextUsage);
-        setScrapeState(nextScrapeState);
-        setQidianAuth(nextQidianAuth);
-        Promise.all(
-          nextNovels.map(async (name) => {
-            try {
-              return [name, await api.novel(name)] as const;
-            } catch {
-              return null;
-            }
-          })
-        ).then((entries) => {
-          if (!active) return;
-          setNovelMetadataByName(
-            Object.fromEntries(entries.filter((entry): entry is readonly [string, NovelMetadata] => entry !== null))
-          );
-        });
-      } catch (caught) {
-        showStatus(errorMessage(caught), true);
-      }
-    }
-
-    boot();
-    return () => {
-      active = false;
-    };
-  }, [showStatus]);
-
-  useEffect(() => {
-    if (!scrapeState.running) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      api.scrapeState().then(setScrapeState).catch((caught) => showStatus(errorMessage(caught), true));
-    }, 800);
-    return () => window.clearInterval(interval);
-  }, [scrapeState.running, showStatus]);
-
-  async function saveQidianCookies(cookieStr: string) {
-    try {
-      setQidianAuth(await api.qidianSetCookies(cookieStr));
-      showStatus("Qidian cookies saved.");
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
-
-  async function logoutQidian() {
-    try {
-      setQidianAuth(await api.qidianLogout());
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
-
-  useEffect(() => {
-    if (scrapeState.stage === "failed" && scrapeState.error) {
-      showStatus(scrapeState.message || scrapeState.error, true);
-      return;
-    }
-    if (scrapeState.stage !== "done" || !scrapeState.result) {
-      return;
-    }
-    const key = `${scrapeState.result.novel}:${scrapeState.result.chapter_count}:${scrapeState.result.files.join("|")}`;
-    if (handledScrapeResult.current === key) {
-      return;
-    }
-    handledScrapeResult.current = key;
-    async function refreshAfterScrape() {
-      const result = scrapeState.result;
-      if (!result) return;
-      const nextNovels = await api.novels();
-      setNovels(nextNovels);
-      const metadata = await loadNovelMetadata(result.novel);
-      setNovelMetadataByName((current) => ({ ...current, [result.novel]: metadata }));
-      setBookSearch("");
-      showStatus(`Downloaded ${result.chapter_count} ${result.chapter_count === 1 ? "chapter" : "chapters"} for ${result.novel}.`);
-    }
-    refreshAfterScrape().catch((caught) => showStatus(errorMessage(caught), true));
-  }, [loadNovelMetadata, scrapeState, showStatus]);
-
-  useEffect(() => {
-    setBookPage(1);
-  }, [bookSearch, bookSort]);
-
-  useEffect(() => {
-    setBookPage((current) => Math.min(current, bookPageCount));
-  }, [bookPageCount]);
-
-  useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
     localStorage.setItem("theme", darkMode ? "dark" : "light");
   }, [darkMode]);
-
-  useEffect(() => {
-    if (!novel || !bulkRunning) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      api
-        .bulkTranslation(novel)
-        .then(async (state) => {
-          const previous = previousBulkState.current;
-          previousBulkState.current = state;
-          setBulkItems(state.items);
-          setBulkRunning(state.running);
-          setBulkAborted(state.aborted);
-          setBulkSelection(
-            new Set(
-              state.items
-                .filter((item) => item.status === "pending" || item.status === "translating")
-                .filter((item) => item.mode !== "name")
-                .map((item) => item.filename)
-            )
-          );
-          if (state.running) {
-            showStatus(describeBulkProgress(state));
-          }
-
-          const hasChanges =
-            !previous || JSON.stringify(previous.items) !== JSON.stringify(state.items);
-          const queueFinished = previous?.running && !state.running;
-          if (!hasChanges && !queueFinished) {
-            return;
-          }
-
-          const [nextChapters, nextUsage] = await Promise.all([api.chapters(novel), api.usage()]);
-          setChapters(nextChapters);
-          setUsage(nextUsage);
-          if (state.items.some((item) => item.status === "done" || item.status === "failed")) {
-            setGlossary(await api.glossary(novel));
-          }
-          if (state.items.some((item) => item.mode === "name" && item.status === "done")) {
-            const metadata = await loadNovelMetadata(novel);
-            setNovelMetadata(metadata);
-          }
-
-          if (selectedFile && state.items.some((item) => item.filename === selectedFile && item.status === "done")) {
-            const chapter = await api.chapter(novel, selectedFile);
-            setSource(chapter.source);
-            setTranslated(chapter.translated);
-          }
-
-          if (queueFinished) {
-            showStatus(
-              state.aborted
-                ? "Bulk translation aborted."
-                : state.items.some((item) => item.status === "failed")
-                  ? "Bulk translation stopped after a failure."
-                  : "Bulk translation complete.",
-              state.items.some((item) => item.status === "failed")
-            );
-          }
-        })
-        .catch((caught) => showStatus(errorMessage(caught), true));
-    }, 1500);
-
-    return () => window.clearInterval(interval);
-  }, [bulkRunning, loadNovelMetadata, novel, selectedFile, showStatus]);
-
-  async function saveConfig(patch: Partial<Config> = {}) {
-    const requestVersion = ++configRequestVersion.current;
-    const nextConfig = { ...config, ...patch };
-    const saveApiKey = Object.keys(patch).length === 0;
-    try {
-      const current = await api.config();
-      const saved = await api.saveConfig({
-        openrouter_api_key: saveApiKey && openrouterApiKey.trim() ? openrouterApiKey.trim() : undefined,
-        keep_existing_openrouter_key: !saveApiKey || (!openrouterApiKey.trim() && current.has_openrouter_api_key),
-        translation_model: nextConfig.translation_model,
-        translation_provider: nextConfig.translation_provider,
-        glossary_model: nextConfig.glossary_model,
-        glossary_provider: nextConfig.glossary_provider,
-        added_models: nextConfig.added_models,
-      });
-      if (requestVersion !== configRequestVersion.current) {
-        return;
-      }
-      setConfig(saved);
-      setOpenrouterApiKey("");
-      showStatus("Settings saved.");
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
-
-  async function deleteBook(novelName: string) {
-    if (!window.confirm(`Delete "${novelDisplayName(novelName)}" and all local files for this book?`)) {
-      return;
-    }
-    try {
-      await api.deleteNovel(novelName);
-      const nextNovels = await api.novels();
-      setNovels(nextNovels);
-      setNovelMetadataByName((current) => {
-        const next = { ...current };
-        delete next[novelName];
-        return next;
-      });
-      localStorage.removeItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${novelName}`);
-      if (novelName === novel) {
-        setNovel("");
-        setNovelMetadata(null);
-        setChapters([]);
-        setSelectedFile("");
-        setSource("");
-        setTranslated("");
-        setGlossary([]);
-        setBulkItems([]);
-        setBulkSelection(new Set());
-        localStorage.removeItem(SELECTED_NOVEL_STORAGE_KEY);
-        navigate("/books");
-      }
-      showStatus(`Deleted ${novelDisplayName(novelName)}.`);
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
-
-  function updateConfig(patch: Partial<Config>) {
-    setConfig((current) => ({ ...current, ...patch }));
-  }
 
   async function runTranslate(mode: "full" | "only") {
     if (!novel || busy) return;
@@ -598,8 +259,6 @@ export function App() {
       mode,
     }));
 
-    setBulkItems(queue);
-    setManualBusy(true);
     showStatus(
       mode === "full"
         ? `Translating ${queue.length} ${queue.length === 1 ? "chapter" : "chapters"} with glossary...`
@@ -607,52 +266,16 @@ export function App() {
     );
 
     try {
-      const state = await api.startBulkTranslation(novel, queue);
-      previousBulkState.current = state;
-      setBulkItems(state.items);
-      setBulkRunning(state.running);
-      setBulkAborted(state.aborted);
-      setBulkSelection(new Set(queue.map((item) => item.filename)));
-      showStatus(describeBulkProgress(state));
-      if (!state.running) {
-        setBulkSelection(new Set());
-      }
+      await startBulk(queue);
     } catch (caught) {
       showStatus(errorMessage(caught), true);
-    } finally {
-      setManualBusy(false);
     }
   }
 
   async function abortBulkTranslation() {
     if (!novel || !bulkRunning) return;
     try {
-      const state = await api.abortBulkTranslation(novel);
-      previousBulkState.current = state;
-      setBulkItems(state.items);
-      setBulkRunning(state.running);
-      setBulkAborted(state.aborted);
-      setBulkSelection(
-        new Set(
-          state.items
-            .filter((item) => item.status === "pending" || item.status === "translating")
-            .filter((item) => item.mode !== "name")
-            .map((item) => item.filename)
-        )
-      );
-      showStatus("Bulk translation aborted.");
-
-      const [nextChapters, nextUsage] = await Promise.all([api.chapters(novel), api.usage()]);
-      setChapters(nextChapters);
-      setUsage(nextUsage);
-      if (state.items.some((item) => item.status === "done" || item.status === "failed" || item.status === "aborted")) {
-        setGlossary(await api.glossary(novel));
-      }
-      if (selectedFile && state.items.some((item) => item.filename === selectedFile && item.status === "done")) {
-        const chapter = await api.chapter(novel, selectedFile);
-        setSource(chapter.source);
-        setTranslated(chapter.translated);
-      }
+      await abortBulk();
     } catch (caught) {
       showStatus(errorMessage(caught), true);
     }
@@ -663,15 +286,6 @@ export function App() {
       const saved = await api.saveGlossary(novel, cleanGlossary(glossary));
       setGlossary(saved);
       showStatus("Glossary saved.");
-    } catch (caught) {
-      showStatus(errorMessage(caught), true);
-    }
-  }
-
-  async function resetUsage() {
-    try {
-      setUsage(await api.resetUsage());
-      showStatus("Token usage reset.");
     } catch (caught) {
       showStatus(errorMessage(caught), true);
     }
@@ -753,101 +367,52 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-20 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-background/95 px-5 pr-16 backdrop-blur max-[760px]:h-auto max-[760px]:grid-cols-1 max-[760px]:gap-3 max-[760px]:px-3 max-[760px]:py-3">
-        <div className="flex items-center gap-2 max-[760px]:pr-14">
-          <BookOpen className="size-5 text-teal-700" />
-          <h1 className="text-base font-semibold">Novel Translator</h1>
-        </div>
-        <nav className="flex w-full min-w-0 items-center justify-center gap-1 rounded-lg bg-muted p-1">
-          <Button
-            type="button"
-            size="sm"
-            variant={page === "library" ? "secondary" : "ghost"}
-            className={cn("relative", page === "library" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
-            onClick={() => navigate("/books")}
-          >
-            <Library />
-            Books
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={page === "workspace" ? "secondary" : "ghost"}
-            className={cn("relative", page === "workspace" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
-            onClick={() => navigate(novel ? translatePath(novel, selectedFile) : "/translate")}
-          >
-            <WandSparkles />
-            Translate
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={page === "glossary" ? "secondary" : "ghost"}
-            className={cn("relative", page === "glossary" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
-            onClick={() => navigate(glossaryPath(novel))}
-          >
-            <ClipboardList />
-            Glossary
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={page === "settings" ? "secondary" : "ghost"}
-            className={cn("relative", page === "settings" && "after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary")}
-            onClick={() => navigate("/settings")}
-          >
-            <SettingsIcon />
-            Settings
-          </Button>
-        </nav>
-        <div className={cn("min-w-0 truncate text-right text-sm text-muted-foreground max-[760px]:pr-14 max-[760px]:text-left", error && "text-destructive")}>
-          {status || "Ready"}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="absolute right-5 top-3 max-[760px]:right-3 max-[760px]:top-3"
-          onClick={() => setDarkMode((current) => !current)}
-          aria-label={darkMode ? "Use light mode" : "Use dark mode"}
-          title={darkMode ? "Light mode" : "Dark mode"}
-        >
-          {darkMode ? <Sun /> : <Moon />}
-        </Button>
-      </header>
+      <AppHeader
+        page={page}
+        status={status}
+        error={error}
+        darkMode={darkMode}
+        onNavigate={(target) => {
+          if (target === "library") navigate("/books");
+          else if (target === "workspace") navigate(novel ? translatePath(novel, selectedFile) : "/translate");
+          else if (target === "glossary") navigate(glossaryPath(novel));
+          else navigate("/settings");
+        }}
+        onToggleTheme={() => setDarkMode((current) => !current)}
+      />
 
       {page === "library" ? (
         <BooksPage
-          novels={paginatedNovels}
-          allCount={novels.length}
-          filteredCount={filteredNovels.length}
-          metadataByName={novelMetadataByName}
+          novels={library.visibleNovels}
+          allCount={library.allCount}
+          filteredCount={library.filteredCount}
+          metadataByName={library.metadataByName}
           selectedNovel={novel}
-          query={bookSearch}
-          sort={bookSort}
-          page={bookPage}
-          pageCount={bookPageCount}
-          scrapeUrl={scrapeUrl}
-          scrapeStart={scrapeStart}
-          scrapeEnd={scrapeEnd}
-          scrapeState={scrapeState}
-          onQueryChange={setBookSearch}
-          onSortChange={setBookSort}
-          onPageChange={setBookPage}
-          onScrapeUrlChange={setScrapeUrl}
-          onScrapeStartChange={setScrapeStart}
-          onScrapeEndChange={setScrapeEnd}
-          onScrape={runScrape}
-          onUseSourceUrl={useSavedSourceUrl}
+          query={library.query}
+          sort={library.sort}
+          page={library.page}
+          pageCount={library.pageCount}
+          scrapeUrl={library.scrapeUrl}
+          scrapeStart={library.scrapeStart}
+          scrapeEnd={library.scrapeEnd}
+          scrapeState={library.scrapeState}
+          onQueryChange={library.setQuery}
+          onSortChange={library.setSort}
+          onPageChange={library.setPage}
+          onScrapeUrlChange={library.setScrapeUrl}
+          onScrapeStartChange={library.setScrapeStart}
+          onScrapeEndChange={library.setScrapeEnd}
+          onScrape={library.runScrape}
+          onUseSourceUrl={library.useSourceUrl}
           onSelect={(name) => chooseNovel(name).catch((caught) => showStatus(errorMessage(caught), true))}
-          onDelete={(name) => deleteBook(name)}
-          qidianAuth={qidianAuth}
-          onQidianSaveCookies={saveQidianCookies}
-          onQidianLogout={logoutQidian}
+          onDelete={library.deleteBook}
+          qidianAuth={library.qidianAuth}
+          onQidianSaveCookies={library.saveQidianCookies}
+          onQidianLogout={library.logoutQidian}
         />
       ) : page === "workspace" ? (
         <TranslatePage
-          displayName={novelDisplayName(novel)}
+          displayName={library.displayName(novel)}
           metadata={novelMetadata}
           chapterCount={chapters.length}
           translatedCount={chapters.length - untranslatedCount}
@@ -896,100 +461,16 @@ export function App() {
         />
       ) : (
         <SettingsPage
-          openrouterApiKey={openrouterApiKey}
-          config={config}
-          usage={usage}
-          onOpenrouterApiKeyChange={setOpenrouterApiKey}
-          onConfigChange={updateConfig}
-          onSaveConfig={saveConfig}
-          onResetUsage={resetUsage}
+          openrouterApiKey={settings.openrouterApiKey}
+          config={settings.config}
+          usage={settings.usage}
+          onOpenrouterApiKeyChange={settings.setOpenrouterApiKey}
+          onConfigChange={settings.updateConfig}
+          onSaveConfig={settings.save}
+          onResetUsage={settings.resetUsage}
         />
       )}
     </div>
   );
-}
-
-function cleanGlossary(entries: GlossaryEntry[]) {
-  return entries
-    .map((entry) => ({
-      source_term: entry.source_term.trim(),
-      english_term: entry.english_term.trim(),
-      category: entry.category.trim(),
-      gender_or_pronoun: entry.gender_or_pronoun,
-    }))
-    .filter((entry) => entry.source_term && entry.english_term);
-}
-
-function routePage(pathname: string): RoutePage | null {
-  if (pathname === "/" || pathname === "/books") {
-    return pathname === "/" ? null : "library";
-  }
-  if (pathname === "/translate") {
-    return "workspace";
-  }
-  if (pathname === "/glossary") {
-    return "glossary";
-  }
-  if (pathname === "/settings") {
-    return "settings";
-  }
-  return null;
-}
-
-function translatePath(book: string, chapter?: string) {
-  const params = new URLSearchParams({ book });
-  if (chapter) {
-    params.set("chapter", chapter);
-  }
-  return `/translate?${params.toString()}`;
-}
-
-function glossaryPath(book?: string) {
-  if (!book) {
-    return "/glossary";
-  }
-  return `/glossary?${new URLSearchParams({ book }).toString()}`;
-}
-
-function preferredChapter(novel: string, chapters: Chapter[]) {
-  const storedSelectedFile = localStorage.getItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${novel}`) || "";
-  return chapters.find((chapter) => chapter.filename === storedSelectedFile) || chapters[0];
-}
-
-function describeBulkProgress(state: BulkTranslationState) {
-  const total = state.items.length;
-  const done = state.items.filter((item) => item.status === "done").length;
-  if (state.aborted) {
-    return "Bulk translation aborted.";
-  }
-  const failed = state.items.find((item) => item.status === "failed");
-  const active = state.items.find((item) => item.status === "translating");
-  const pending = state.items.find((item) => item.status === "pending");
-
-  if (failed) {
-    return `${failed.title} failed: ${failed.message || "Translation failed."}`;
-  }
-  if (active) {
-    return `${active.message || "Translating..."} ${active.title} (${done + 1}/${total})`;
-  }
-  if (pending) {
-    return `Queued ${pending.title} (${done}/${total} done)`;
-  }
-  if (total === 1) {
-    return `Translation complete: ${state.items[0]?.title || "chapter"}.`;
-  }
-  return `Bulk translation complete: ${done}/${total}.`;
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function decodeContentDispositionFilename(disposition: string) {
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-  if (encoded) {
-    return decodeURIComponent(encoded);
-  }
-  return disposition.match(/filename="?([^";]+)"?/i)?.[1] || "";
 }
 
