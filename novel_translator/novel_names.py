@@ -6,9 +6,11 @@ from typing import Any, Callable
 from . import settings
 from .chapters import safe_segment
 from .config import load_config
+from .codex_backend import call_codex
 from .openrouter import call_openrouter
 from .errors import AppError
 from .json_store import read_json, write_json
+from .llm_schemas import NOVEL_NAME_SCHEMA
 from .source_language import contains_source_language_text
 
 
@@ -52,15 +54,26 @@ def ensure_translated_novel_name(
 
     config = load_config()
     api_key = config["openrouter_api_key"]
-    if not api_key:
-        return safe_novel
+    backend = config["translation_backend"]
+    if backend == "openrouter" and not api_key:
+        raise AppError("OpenRouter API key is not configured.")
+    if backend == "codex" and not config["codex_translation_model"]:
+        raise AppError("Codex translation model is not configured.")
 
     call_api = call_api or call_openrouter
     if should_abort and should_abort():
         raise AppError("Bulk translation aborted.", 409)
     messages = build_novel_name_messages(safe_novel)
-    if call_api is call_openrouter:
-        response = call_api(api_key, config["translation_model"], messages, config["translation_provider"])
+    if call_api is call_openrouter and backend == "codex":
+        response = call_codex(config["codex_translation_model"], messages, NOVEL_NAME_SCHEMA)
+    elif call_api is call_openrouter:
+        response = call_api(
+            api_key,
+            config["translation_model"],
+            messages,
+            config["translation_provider"],
+            output_schema=NOVEL_NAME_SCHEMA,
+        )
     else:
         response = call_api(api_key, config["translation_model"], messages)
     translated_name = parse_novel_name_response(response)

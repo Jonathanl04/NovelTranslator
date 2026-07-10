@@ -4,11 +4,13 @@ from typing import Any, Callable
 
 from .chapters import source_path, split_chapter, write_translation
 from .config import load_config
+from .codex_backend import call_codex
 from .openrouter import OPENROUTER_TIMEOUT_MESSAGE, call_openrouter
 from .errors import AppError
 from .failure_log import log_llm_failure
 from .glossary import glossary_path, glossary_prompt, load_glossary, merge_glossary_entries
 from .json_store import write_json
+from .llm_schemas import FRAGMENT_REPLACEMENTS_SCHEMA, GLOSSARY_SCHEMA, TRANSLATION_SCHEMA
 from .translation_prompts import (
     SHARED_PROMPT_PREFIX,
     build_cached_prefix,
@@ -40,10 +42,27 @@ def configured_api_call(
     model: str,
     messages: list[dict[str, str]],
     provider: str = "",
+    backend: str = "openrouter",
+    codex_model: str = "",
+    output_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if call_api is call_openrouter and backend == "codex":
+        if output_schema is None:
+            raise AppError("Codex requests require an output schema.", 500)
+        return call_codex(codex_model, messages, output_schema)
     if provider and call_api is call_openrouter:
-        return call_api(api_key, model, messages, provider)
+        return call_api(api_key, model, messages, provider, output_schema=output_schema)
+    if call_api is call_openrouter:
+        return call_api(api_key, model, messages, output_schema=output_schema)
     return call_api(api_key, model, messages)
+
+
+def require_workload_backend(config: dict[str, Any], workload: str) -> None:
+    backend = config[f"{workload}_backend"]
+    if backend == "openrouter" and not config["openrouter_api_key"]:
+        raise AppError("OpenRouter API key is not configured.")
+    if backend == "codex" and not config[f"codex_{workload}_model"]:
+        raise AppError(f"Codex {workload} model is not configured.")
 
 
 def llm_request_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
@@ -81,8 +100,7 @@ def populate_glossary_for_chapter(
 ) -> list[dict[str, str]]:
     config = load_config()
     api_key = config["openrouter_api_key"]
-    if not api_key:
-        raise AppError("OpenRouter API key is not configured.")
+    require_workload_backend(config, "glossary")
 
     original = source_path(novel, filename).read_text(encoding="utf-8")
     title, body = split_chapter(original)
@@ -104,6 +122,9 @@ def populate_glossary_for_chapter(
                 config["glossary_model"],
                 retry_messages,
                 config["glossary_provider"],
+                config["glossary_backend"],
+                config["codex_glossary_model"],
+                GLOSSARY_SCHEMA,
             )
             try:
                 updates = parse_glossary_response(api_response)
@@ -156,8 +177,7 @@ def translate_chapter(
 ) -> dict[str, Any]:
     config = load_config()
     api_key = config["openrouter_api_key"]
-    if not api_key:
-        raise AppError("OpenRouter API key is not configured.")
+    require_workload_backend(config, "translation")
 
     original = source_path(novel, filename).read_text(encoding="utf-8")
     title, body = split_chapter(original)
@@ -187,6 +207,9 @@ def translate_chapter(
                     config["translation_model"],
                     retry_messages,
                     config["translation_provider"],
+                    config["translation_backend"],
+                    config["codex_translation_model"],
+                    TRANSLATION_SCHEMA,
                 )
             except AppError as exc:
                 if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
@@ -222,6 +245,9 @@ def translate_chapter(
                 config["translation_model"],
                 build_fragment_repair_messages(retry_messages, draft_json),
                 config["translation_provider"],
+                config["translation_backend"],
+                config["codex_translation_model"],
+                FRAGMENT_REPLACEMENTS_SCHEMA,
             )
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
@@ -245,6 +271,9 @@ def translate_chapter(
                 config["translation_model"],
                 repair_messages,
                 config["translation_provider"],
+                config["translation_backend"],
+                config["codex_translation_model"],
+                TRANSLATION_SCHEMA,
             )
             try:
                 parsed = parse_translation_response(repair_response)

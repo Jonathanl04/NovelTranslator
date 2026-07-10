@@ -7,12 +7,15 @@ import unittest
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 
 import app
 from novel_translator import settings
+from novel_translator.codex_backend import direct_responses_payload, parse_codex_sse
 from novel_translator.server import acquire_server_lock, release_server_lock
+from novel_translator.translation import configured_api_call
 
 
 def frontend_source() -> str:
@@ -21,6 +24,207 @@ def frontend_source() -> str:
 
 
 class TranslatorAppTests(unittest.TestCase):
+    def test_load_config_defaults_to_openrouter_and_preserves_codex_choices(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(json.dumps({"api_key": "legacy"}), encoding="utf-8")
+            with patch.object(settings, "CONFIG_PATH", path):
+                loaded = app.load_config()
+                self.assertEqual(loaded["translation_backend"], "openrouter")
+                self.assertEqual(loaded["glossary_backend"], "openrouter")
+
+                saved = app.save_config(
+                    {
+                        "translation_backend": "codex",
+                        "glossary_backend": "openrouter",
+                        "codex_translation_model": "gpt-test",
+                    }
+                )
+
+            self.assertEqual(saved["translation_backend"], "codex")
+            self.assertEqual(saved["codex_translation_model"], "gpt-test")
+            self.assertEqual(saved["openrouter_api_key"], "legacy")
+
+    def test_configured_api_call_routes_codex_without_openrouter_fallback(self) -> None:
+        expected = {"choices": []}
+        with patch("novel_translator.translation.call_codex", return_value=expected) as call:
+            result = configured_api_call(
+                app.call_openrouter,
+                "openrouter-secret",
+                "openrouter/model",
+                [{"role": "user", "content": "hello"}],
+                "provider",
+                "codex",
+                "gpt-test",
+                {"type": "object"},
+            )
+
+        self.assertIs(result, expected)
+        call.assert_called_once_with(
+            "gpt-test",
+            [{"role": "user", "content": "hello"}],
+            {"type": "object"},
+        )
+
+    def test_codex_model_refresh_preserves_stale_catalog_on_failure(self) -> None:
+        model = SimpleNamespace(
+            model="gpt-test",
+            display_name="GPT Test",
+            description="Test model",
+            is_default=True,
+            hidden=False,
+        )
+        root = SimpleNamespace(type="chatgpt", email="test@example.com", plan_type="plus")
+
+        class FakeCodex:
+            def __init__(self) -> None:
+                self.fail = False
+
+            def account(self):
+                return SimpleNamespace(account=SimpleNamespace(root=root))
+
+            def models(self):
+                if self.fail:
+                    raise RuntimeError("catalog unavailable")
+                return SimpleNamespace(data=[model])
+
+        service = app.CodexService()
+        service._codex = FakeCodex()
+        fresh = service.models(refresh=True)
+        service._codex.fail = True
+        stale = service.models(refresh=True)
+
+        self.assertEqual(fresh["models"][0]["id"], "gpt-test")
+        self.assertTrue(stale["stale"])
+        self.assertIn("catalog unavailable", stale["error"])
+        self.assertEqual(stale["models"], fresh["models"])
+
+    def test_codex_usage_reports_remaining_windows_and_optional_credits(self) -> None:
+        window = SimpleNamespace(used_percent=25, window_duration_mins=300, resets_at=1234)
+        root = SimpleNamespace(type="chatgpt", email="test@example.com", plan_type="plus")
+        credits = SimpleNamespace(model_dump=lambda **_: {"balance": "10", "hasCredits": True})
+        snapshot = SimpleNamespace(
+            plan_type="plus",
+            limit_name="Codex",
+            primary=window,
+            secondary=None,
+            rate_limit_reached_type=None,
+            credits=credits,
+            individual_limit=None,
+        )
+
+        class FakeCodex:
+            def account(self):
+                return SimpleNamespace(account=SimpleNamespace(root=root))
+
+        service = app.CodexService()
+        service._codex = FakeCodex()
+        service._read_rate_limits = lambda: SimpleNamespace(rate_limits=snapshot)
+        usage = service.usage(refresh=True)
+
+        self.assertEqual(usage["primary"]["remaining_percent"], 75)
+        self.assertEqual(usage["primary"]["window_duration_mins"], 300)
+        self.assertEqual(usage["credits"]["balance"], "10")
+
+    def test_codex_call_uses_direct_responses_adapter(self) -> None:
+        app.reset_usage()
+        self.addCleanup(app.reset_usage)
+        model = SimpleNamespace(
+            model="gpt-test",
+            display_name="GPT Test",
+            description="Test model",
+            is_default=True,
+            hidden=False,
+        )
+        root = SimpleNamespace(type="chatgpt", email="test@example.com", plan_type="plus")
+        seen = {}
+
+        class FakeCodex:
+            def account(self):
+                return SimpleNamespace(account=SimpleNamespace(root=root))
+
+            def models(self):
+                return SimpleNamespace(data=[model])
+
+        class FakeResponses:
+            def call(self, client, selected_model, messages, output_schema):
+                seen["client"] = client
+                seen["model"] = selected_model
+                seen["messages"] = messages
+                seen["output_schema"] = output_schema
+                return {
+                    "choices": [{"message": {"content": '{"translated_name":"Test"}'}}],
+                    "usage": {
+                        "prompt_tokens": 20,
+                        "completion_tokens": 7,
+                        "total_tokens": 27,
+                        "cost": 0.0,
+                    },
+                }
+
+        service = app.CodexService()
+        service._codex = FakeCodex()
+        service._responses = FakeResponses()
+        self.addCleanup(service.close)
+        service.usage = lambda refresh=False: {}
+        response = service.call(
+            "gpt-test",
+            [{"role": "user", "content": "Translate this"}],
+            {"type": "object"},
+        )
+
+        self.assertIs(seen["client"], service._codex)
+        self.assertEqual(seen["model"], "gpt-test")
+        self.assertEqual(seen["messages"], [{"role": "user", "content": "Translate this"}])
+        self.assertEqual(seen["output_schema"], {"type": "object"})
+        self.assertEqual(response["usage"]["total_tokens"], 27)
+
+    def test_direct_codex_payload_has_no_tools_and_uses_lowest_reasoning(self) -> None:
+        schema = {"type": "object", "properties": {"result": {"type": "string"}}}
+        payload = direct_responses_payload(
+            "gpt-test",
+            [
+                {"role": "system", "content": "Translate accurately."},
+                {"role": "user", "content": "Text"},
+            ],
+            schema,
+        )
+
+        self.assertEqual(payload["instructions"], "Translate accurately.")
+        self.assertEqual(payload["reasoning"]["effort"], "none")
+        self.assertFalse(payload["text"]["format"]["strict"])
+        self.assertEqual(payload["text"]["format"]["schema"], schema)
+        self.assertNotIn("tools", payload)
+
+    def test_direct_codex_stream_reports_responses_usage(self) -> None:
+        events = [
+            b'data: {"type":"response.output_text.delta","delta":"{\\"result\\":\\"ok\\"}"}',
+            b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}',
+            b"data: [DONE]",
+        ]
+        response = SimpleNamespace(iter_lines=lambda decode_unicode=True: iter(events))
+
+        parsed = parse_codex_sse(response)
+
+        self.assertEqual(parsed["choices"][0]["message"]["content"], '{"result":"ok"}')
+        self.assertEqual(parsed["usage"]["prompt_tokens"], 12)
+        self.assertEqual(parsed["usage"]["total_tokens"], 15)
+
+    def test_successful_codex_login_is_not_failed_by_usage_refresh(self) -> None:
+        service = app.CodexService()
+        handle = SimpleNamespace(wait=lambda: SimpleNamespace(success=True, error=None))
+        service.models = lambda refresh=False: {"models": []}
+
+        def fail_usage(refresh=False):
+            raise RuntimeError("usage unavailable")
+
+        service.usage = fail_usage
+        service._login_handle = handle
+        service._wait_for_login(handle)
+
+        self.assertEqual(service._login_status, "signed_in")
+        self.assertEqual(service._login_error, "")
+
     def test_translation_prompt_only_includes_chapter_glossary_matches(self) -> None:
         glossary = [
             {
@@ -553,6 +757,82 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertNotIn("response_format", payloads[1])
         self.assertNotIn("response_format", payloads[2])
         self.assertEqual(payloads[2]["provider"], {"only": ["test-provider"], "allow_fallbacks": False})
+
+    def test_call_openrouter_falls_back_from_non_strict_schema_to_json_object_to_none(self) -> None:
+        payloads = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+        class FakeErrorBody:
+            def __init__(self, body: bytes):
+                self.body = body
+
+            def read(self) -> bytes:
+                return self.body
+
+            def close(self) -> None:
+                return None
+
+        def fake_opener(request, timeout: int):
+            payload = json.loads(request.data.decode("utf-8"))
+            payloads.append(payload)
+            response_type = payload.get("response_format", {}).get("type")
+            if response_type == "json_schema":
+                raise HTTPError(
+                    request.full_url,
+                    400,
+                    "Bad Request",
+                    {},
+                    FakeErrorBody(b'{"error":{"message":"Provider does not support json_schema response_format."}}'),
+                )
+            if response_type == "json_object":
+                raise HTTPError(
+                    request.full_url,
+                    400,
+                    "Bad Request",
+                    {},
+                    FakeErrorBody(b'{"error":{"message":"Provider does not support json_object response_format."}}'),
+                )
+            return FakeResponse()
+
+        schema = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+            "additionalProperties": False,
+        }
+        app.call_openrouter(
+            "secret",
+            "test/schema-fallback-memory",
+            [{"role": "user", "content": "Hi"}],
+            "test-provider",
+            fake_opener,
+            schema,
+        )
+        app.call_openrouter(
+            "secret",
+            "test/schema-fallback-memory",
+            [{"role": "user", "content": "Hi"}],
+            "test-provider",
+            fake_opener,
+            schema,
+        )
+
+        schema_format = payloads[0]["response_format"]
+        self.assertEqual(schema_format["type"], "json_schema")
+        self.assertFalse(schema_format["json_schema"]["strict"])
+        self.assertEqual(schema_format["json_schema"]["schema"], schema)
+        self.assertEqual(payloads[1]["response_format"], {"type": "json_object"})
+        self.assertNotIn("response_format", payloads[2])
+        self.assertNotIn("response_format", payloads[3])
 
     def test_openrouter_model_providers_returns_endpoint_providers(self) -> None:
         seen = {}

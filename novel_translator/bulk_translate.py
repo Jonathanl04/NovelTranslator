@@ -243,7 +243,7 @@ def _process_bulk_translation_queue(novel: str) -> None:
                 if current["mode"] == "name":
                     ensure_translated_novel_name(novel, should_abort=lambda: is_bulk_translation_aborted(novel))
                     if needs_translated_novel_name(novel):
-                        raise AppError("OpenRouter API key is not configured.")
+                        raise AppError("Translation backend did not return a translated title.")
                 else:
                     translate_chapter(
                         novel,

@@ -13,7 +13,7 @@ export function UsageSummary({ usage }: { usage: UsageBucket }) {
   return (
     <div className="grid gap-1 rounded-md border bg-muted/30 p-2">
       <div className="flex items-center justify-between gap-2 text-xs font-semibold">
-        <span>Cost</span>
+        <span>Reported API cost</span>
         <span className="tabular-nums">{formatUsd(usage.cost_usd)}</span>
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-muted-foreground">

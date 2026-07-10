@@ -8,9 +8,63 @@ export type OpenRouterProvider = {
   name: string;
 };
 
+export type LlmBackend = "openrouter" | "codex";
+
+export type CodexAuth = {
+  available: boolean;
+  signed_in: boolean;
+  status: "signed_out" | "pending" | "signed_in" | "error";
+  account: { email: string; plan: string } | null;
+  error: string;
+};
+
+export type CodexModel = {
+  id: string;
+  name: string;
+  description: string;
+  is_default: boolean;
+};
+
+export type CodexModels = {
+  models: CodexModel[];
+  fetched_at: number;
+  stale: boolean;
+  error: string;
+};
+
+export type CodexUsageWindow = {
+  used_percent: number;
+  remaining_percent: number;
+  window_duration_mins: number | null;
+  resets_at: number | null;
+};
+
+export type CodexRemainingUsage = {
+  available: boolean;
+  fetched_at: number;
+  stale: boolean;
+  error: string;
+  plan: string | null;
+  limit_name: string | null;
+  primary: CodexUsageWindow | null;
+  secondary: CodexUsageWindow | null;
+  rate_limit_reached_type: string | null;
+  credits: { balance: string | null; hasCredits: boolean; unlimited: boolean } | null;
+  individual_limit: {
+    limit: string;
+    used: string;
+    remainingPercent: number;
+    resetsAt: number;
+  } | null;
+};
+
 export type Config = {
   has_openrouter_api_key: boolean;
   openrouter_api_key_mask: string;
+  translation_backend: LlmBackend;
+  glossary_backend: LlmBackend;
+  codex_translation_model: string;
+  codex_glossary_model: string;
   translation_model: string;
   translation_provider: string;
   glossary_model: string;

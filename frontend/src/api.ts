@@ -3,6 +3,9 @@ import type {
   BulkTranslationState,
   Chapter,
   ChapterDetail,
+  CodexAuth,
+  CodexModels,
+  CodexRemainingUsage,
   Config,
   GlossaryEntry,
   NovelMetadata,
@@ -41,6 +44,10 @@ export const api = {
   saveConfig: (payload: {
     openrouter_api_key?: string;
     keep_existing_openrouter_key: boolean;
+    translation_backend: Config["translation_backend"];
+    glossary_backend: Config["glossary_backend"];
+    codex_translation_model: string;
+    codex_glossary_model: string;
     translation_model: string;
     translation_provider: string;
     glossary_model: string;
@@ -49,6 +56,14 @@ export const api = {
   }) => request<Config>("/api/config", { method: "POST", body: JSON.stringify(payload) }),
   openrouterProviders: (model: string) =>
     request<OpenRouterProvider[]>(`/api/openrouter/providers?model=${encodeURIComponent(model)}`),
+  codexAuth: () => request<CodexAuth>("/api/codex/auth"),
+  codexLogin: () =>
+    request<{ auth_url: string; status: "pending" }>("/api/codex/auth/login", { method: "POST" }),
+  codexLogout: () => request<CodexAuth>("/api/codex/auth/logout", { method: "POST" }),
+  codexModels: (refresh = false) =>
+    request<CodexModels>(`/api/codex/models?refresh=${refresh}`),
+  codexRemainingUsage: (refresh = false) =>
+    request<CodexRemainingUsage>(`/api/codex/usage?refresh=${refresh}`),
   novels: () => request<string[]>("/api/novels"),
   novel: (novel: string) =>
     request<NovelMetadata>(`/api/novel?novel=${encodeURIComponent(novel)}`),

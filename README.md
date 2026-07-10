@@ -10,21 +10,21 @@ Local web app for translating downloaded Chinese or Korean novel chapters into E
 - Exports translated chapters to EPUB with a linked table of contents and the downloaded cover image.
 - Keeps a novel-specific glossary in `data/<novel name>/glossary/glossary.json`.
 - Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
-- Uses OpenRouter chat completions directly from the Python backend.
-- Lets you select default OpenRouter model/provider pairs or add custom model/provider pairs in Settings.
+- Uses OpenRouter chat completions or an experimental Codex backend authenticated with ChatGPT.
+- Lets glossary extraction and chapter translation use different backends and models.
 - Uses a Vite React frontend with shadcn/ui components.
 - Rejects translation output that still contains Chinese or Korean source-language text instead of saving partial output.
 - Runs a compact fragment-replacement repair pass when the model leaves Chinese or Korean fragments untranslated.
-- Tracks combined token usage and OpenRouter-reported cost.
+- Tracks combined token usage, OpenRouter-reported cost, and Codex quota windows.
 
 ## Requirements
 
 - Python 3.11 or newer.
 - Node.js 22.22.2, 24.15.0, 26.0.0, or newer for frontend development. The current app also builds on Node 24.12.0 with an npm engine warning from a transitive CLI package.
-- An OpenRouter API key.
+- An OpenRouter API key, an eligible ChatGPT/Codex account, or both.
 - Downloader scripts use `requests`, `beautifulsoup4`, and `scrapling`.
 
-The backend uses only the Python standard library.
+The Codex backend uses the pinned beta `openai-codex` Python SDK and its bundled runtime.
 
 ## Setup
 
@@ -60,7 +60,7 @@ Open:
 http://127.0.0.1:5173
 ```
 
-Paste your OpenRouter API key in the Settings page and click `Save API Key`. The key is stored locally in `data/translator_config.json`, which is ignored by git.
+Paste your OpenRouter API key in Settings and click `Save API Key`, or click `Sign in with ChatGPT` to use Codex. The OpenRouter key is stored in the ignored `data/translator_config.json`; ChatGPT credentials remain in Codex's user credential store.
 
 ## Docker
 
@@ -90,11 +90,17 @@ docker compose run --rm novel-translator python scraper/download_69shuba.py http
 Use the Settings page to configure:
 
 - OpenRouter API key
+- ChatGPT/Codex connection
+- OpenRouter or Codex backend for glossary and translation independently
 - Glossary model
 - Translation model
 - Added custom models
 
-Requests use the OpenRouter chat completions API.
+OpenRouter requests use its chat completions API. Codex requests use an experimental minimal direct Responses adapter with no coding tools and the lowest reasoning level accepted by the selected model. Authentication, model discovery, and remaining-usage reporting still use the pinned SDK and its managed ChatGPT credentials. Codex requests consume Codex plan limits or ChatGPT credits rather than general OpenAI API quota.
+
+For OpenRouter, each structured request first uses the same non-strict JSON Schema as Codex. If the selected model/provider rejects schema mode, the app remembers that limitation and falls back to JSON-object mode, then to no response format if necessary. Existing parse and repair retries handle malformed responses after those transport fallbacks.
+
+After signing in, use `Refresh models` to retrieve the current model catalog for that account. A saved model that disappears remains visibly unavailable until another model is selected; the app never switches it silently. `Refresh usage` displays the primary and secondary quota windows, reset times, optional credits, and the last successful refresh time.
 
 Defaults:
 
@@ -121,8 +127,9 @@ Using the same model for both can improve cache-hit opportunities because glossa
 
 Usage and cost:
 
-- Token usage is shown as one combined total.
+- Token usage is shown as one combined total. Codex rows are prefixed with `codex:`.
 - Cost is recorded from OpenRouter `usage.cost`, including upstream BYOK cost when OpenRouter reports it.
+- Reported API cost excludes subscription-backed Codex usage because OpenAI does not return a per-request USD cost for it.
 - If OpenRouter omits cost, the app records `0` instead of estimating from hardcoded rates.
 - Actual cost varies with model, provider, chapter length, glossary size, and repair passes.
 

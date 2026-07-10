@@ -18,6 +18,14 @@ from . import settings
 from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
 from .chapters import cover_path, delete_novel, list_chapters, list_novels, novel_metadata, read_chapter
 from .config import load_config, mask_key, public_config, save_config
+from .codex_backend import (
+    close_codex,
+    codex_auth_state,
+    codex_models,
+    codex_remaining_usage,
+    logout_codex,
+    start_codex_login,
+)
 from .openrouter import openrouter_model_providers
 from .errors import AppError
 from .epub import build_translated_epub
@@ -63,6 +71,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/usage":
                 self.handle_usage(method)
+                return
+            if parsed.path == "/api/codex/auth":
+                if method != "GET":
+                    raise AppError("Method not allowed.", 405)
+                self.json(codex_auth_state())
+                return
+            if parsed.path == "/api/codex/auth/login":
+                if method != "POST":
+                    raise AppError("Method not allowed.", 405)
+                self.json(start_codex_login())
+                return
+            if parsed.path == "/api/codex/auth/logout":
+                if method != "POST":
+                    raise AppError("Method not allowed.", 405)
+                self.json(logout_codex())
+                return
+            if method == "GET" and parsed.path == "/api/codex/models":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.json(codex_models(first(query, "refresh").lower() == "true"))
+                return
+            if method == "GET" and parsed.path == "/api/codex/usage":
+                query = urllib.parse.parse_qs(parsed.query)
+                self.json(codex_remaining_usage(first(query, "refresh").lower() == "true"))
                 return
             if method == "GET" and parsed.path == "/api/openrouter/providers":
                 query = urllib.parse.parse_qs(parsed.query)
@@ -171,6 +202,10 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "has_openrouter_api_key": bool(saved["openrouter_api_key"]),
                 "openrouter_api_key_mask": mask_key(saved["openrouter_api_key"]),
+                "translation_backend": saved["translation_backend"],
+                "glossary_backend": saved["glossary_backend"],
+                "codex_translation_model": saved["codex_translation_model"],
+                "codex_glossary_model": saved["codex_glossary_model"],
                 "translation_model": saved["translation_model"],
                 "translation_provider": saved["translation_provider"],
                 "glossary_model": saved["glossary_model"],
@@ -408,6 +443,7 @@ def run_server(host: str, port: int) -> None:
     finally:
         if server is not None:
             server.server_close()
+        close_codex()
         release_server_lock(instance_lock)
 
 

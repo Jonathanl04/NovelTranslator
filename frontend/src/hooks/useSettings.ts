@@ -6,6 +6,10 @@ import { emptyUsageBucket } from "@/pages/shared";
 const emptyConfig: Config = {
   has_openrouter_api_key: false,
   openrouter_api_key_mask: "",
+  translation_backend: "openrouter",
+  glossary_backend: "openrouter",
+  codex_translation_model: "",
+  codex_glossary_model: "",
   translation_model: "deepseek/deepseek-v4-flash",
   translation_provider: "deepseek",
   glossary_model: "deepseek/deepseek-v4-flash",
@@ -52,6 +56,10 @@ export function useSettings(onStatus: (message: string, isError?: boolean) => vo
       const saved = await api.saveConfig({
         openrouter_api_key: saveApiKey && openrouterApiKey.trim() ? openrouterApiKey.trim() : undefined,
         keep_existing_openrouter_key: !saveApiKey || (!openrouterApiKey.trim() && current.has_openrouter_api_key),
+        translation_backend: nextConfig.translation_backend,
+        glossary_backend: nextConfig.glossary_backend,
+        codex_translation_model: nextConfig.codex_translation_model,
+        codex_glossary_model: nextConfig.codex_glossary_model,
         translation_model: nextConfig.translation_model,
         translation_provider: nextConfig.translation_provider,
         glossary_model: nextConfig.glossary_model,

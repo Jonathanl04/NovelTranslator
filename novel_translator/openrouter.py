@@ -14,6 +14,7 @@ from .usage import record_llm_usage
 OPENROUTER_TIMEOUT_SECONDS = 300
 OPENROUTER_TIMEOUT_MESSAGE = "OpenRouter request timed out."
 _json_object_unsupported: set[tuple[str, str]] = set()
+_json_schema_unsupported: set[tuple[str, str]] = set()
 _response_format_lock = threading.Lock()
 
 
@@ -23,6 +24,7 @@ def call_openrouter(
     messages: list[dict[str, str]],
     provider: str = "",
     opener: Any = urllib.request.urlopen,
+    output_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if callable(provider):
         opener = provider
@@ -35,7 +37,16 @@ def call_openrouter(
         "thinking": {"type": "disabled"},
         "reasoning": {"effort": "none", "exclude": True},
     }
-    if json_object_supported(model, provider):
+    if output_schema is not None and json_schema_supported(model, provider):
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "novel_translator_response",
+                "strict": False,
+                "schema": output_schema,
+            },
+        }
+    elif json_object_supported(model, provider):
         payload["response_format"] = {"type": "json_object"}
     if provider:
         payload["provider"] = {
@@ -63,6 +74,15 @@ def post_openrouter(api_key: str, usage_model: str, payload: dict[str, Any], ope
         raise AppError(OPENROUTER_TIMEOUT_MESSAGE, 502) from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
+        if should_retry_without_json_schema(payload, detail):
+            payload_provider = provider_from_payload(payload)
+            remember_json_schema_unsupported(usage_model, payload_provider)
+            retry_payload = dict(payload)
+            if json_object_supported(usage_model, payload_provider):
+                retry_payload["response_format"] = {"type": "json_object"}
+            else:
+                retry_payload.pop("response_format", None)
+            return post_openrouter(api_key, usage_model, retry_payload, opener)
         if should_retry_without_json_object(payload, detail):
             remember_json_object_unsupported(usage_model, provider_from_payload(payload))
             retry_payload = dict(payload)
@@ -98,14 +118,42 @@ def should_retry_without_json_object(payload: dict[str, Any], detail: str) -> bo
     )
 
 
+def should_retry_without_json_schema(payload: dict[str, Any], detail: str) -> bool:
+    response_format = payload.get("response_format")
+    if not isinstance(response_format, dict) or response_format.get("type") != "json_schema":
+        return False
+    detail_lower = detail.lower()
+    format_mentioned = (
+        "json_schema" in detail_lower
+        or "structured output" in detail_lower
+        or ("response_format" in detail_lower and "json_object" in detail_lower)
+    )
+    return format_mentioned and (
+        "response format" in detail_lower
+        or "response_format" in detail_lower
+        or "not support" in detail_lower
+        or "unsupported" in detail_lower
+    )
+
+
 def json_object_supported(model: str, provider: str) -> bool:
     with _response_format_lock:
         return (model, provider) not in _json_object_unsupported
 
 
+def json_schema_supported(model: str, provider: str) -> bool:
+    with _response_format_lock:
+        return (model, provider) not in _json_schema_unsupported
+
+
 def remember_json_object_unsupported(model: str, provider: str) -> None:
     with _response_format_lock:
         _json_object_unsupported.add((model, provider))
+
+
+def remember_json_schema_unsupported(model: str, provider: str) -> None:
+    with _response_format_lock:
+        _json_schema_unsupported.add((model, provider))
 
 
 def provider_from_payload(payload: dict[str, Any]) -> str:
