@@ -1,8 +1,37 @@
 import type { AppPage } from "@/components/AppHeader";
 import type { Chapter, GlossaryEntry } from "@/types";
 
-export const SELECTED_CHAPTER_STORAGE_KEY = "novel-translator:selected-chapter";
 export const SELECTED_NOVEL_STORAGE_KEY = "novel-translator:selected-novel";
+const READING_PROGRESS_STORAGE_KEY = "novel-translator:reading-progress";
+
+type ReadingProgress = {
+  chapter: string;
+  scrollTop: number;
+};
+
+function parseReadingProgress(value: string | null): ReadingProgress | null {
+  try {
+    const stored: unknown = JSON.parse(value || "null");
+    if (!stored || typeof stored !== "object") return null;
+    const progress = stored as Partial<ReadingProgress>;
+    if (typeof progress.chapter !== "string" || typeof progress.scrollTop !== "number" || !Number.isFinite(progress.scrollTop)) return null;
+    return { chapter: progress.chapter, scrollTop: Math.max(0, progress.scrollTop) };
+  } catch {
+    return null;
+  }
+}
+
+export function getReadingProgress(novel: string): ReadingProgress | null {
+  return parseReadingProgress(localStorage.getItem(`${READING_PROGRESS_STORAGE_KEY}:${novel}`));
+}
+
+export function saveReadingProgress(novel: string, progress: ReadingProgress) {
+  localStorage.setItem(`${READING_PROGRESS_STORAGE_KEY}:${novel}`, JSON.stringify(progress));
+}
+
+export function clearReadingProgress(novel: string) {
+  localStorage.removeItem(`${READING_PROGRESS_STORAGE_KEY}:${novel}`);
+}
 
 export function cleanGlossary(entries: GlossaryEntry[]) {
   return entries
@@ -34,8 +63,8 @@ export function glossaryPath(book?: string) {
 }
 
 export function preferredChapter(novel: string, chapters: Chapter[]) {
-  const stored = localStorage.getItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${novel}`) || "";
-  return chapters.find((chapter) => chapter.filename === stored) || chapters[0];
+  const progress = getReadingProgress(novel);
+  return chapters.find((chapter) => chapter.filename === progress?.chapter) || chapters[0];
 }
 
 export function errorMessage(error: unknown) {

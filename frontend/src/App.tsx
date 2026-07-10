@@ -16,14 +16,15 @@ import { useBulkTranslation } from "@/hooks/useBulkTranslation";
 import { useLibrary } from "@/hooks/useLibrary";
 import { useSettings } from "@/hooks/useSettings";
 import {
-  SELECTED_CHAPTER_STORAGE_KEY,
   SELECTED_NOVEL_STORAGE_KEY,
   cleanGlossary,
   decodeContentDispositionFilename,
   errorMessage,
   glossaryPath,
+  getReadingProgress,
   preferredChapter,
   routePage,
+  saveReadingProgress,
   translatePath,
 } from "@/appUtils";
 
@@ -40,6 +41,7 @@ export function App() {
     routeNovel || (page === "glossary" ? novel || localStorage.getItem(SELECTED_NOVEL_STORAGE_KEY) || "" : "");
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [selectedFile, setSelectedFile] = useState("");
+  const [loadedFile, setLoadedFile] = useState("");
   const [source, setSource] = useState("");
   const [translated, setTranslated] = useState("");
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
@@ -92,6 +94,7 @@ export function App() {
     setNovelMetadata(null);
     setChapters([]);
     setSelectedFile("");
+    setLoadedFile("");
     setSource("");
     setTranslated("");
     setGlossary([]);
@@ -162,10 +165,18 @@ export function App() {
   const selectChapter = useCallback(
     async (nextNovel: string, filename: string) => {
       setSelectedFile(filename);
-      localStorage.setItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${nextNovel}`, filename);
+      setLoadedFile("");
+      setSource("");
+      setTranslated("");
+      const progress = getReadingProgress(nextNovel);
+      saveReadingProgress(nextNovel, {
+        chapter: filename,
+        scrollTop: progress?.chapter === filename ? progress.scrollTop : 0,
+      });
       const chapter = await api.chapter(nextNovel, filename);
       setSource(chapter.source);
       setTranslated(chapter.translated);
+      setLoadedFile(filename);
       showStatus(chapter.translated_exists ? "Loaded existing translation." : "Loaded source chapter.");
     },
     [showStatus]
@@ -178,6 +189,7 @@ export function App() {
         localStorage.setItem(SELECTED_NOVEL_STORAGE_KEY, nextNovel);
       }
       setSelectedFile("");
+      setLoadedFile("");
       setSource("");
       setTranslated("");
       setNovelMetadata(null);
@@ -412,6 +424,7 @@ export function App() {
         />
       ) : page === "workspace" ? (
         <TranslatePage
+          novel={novel}
           displayName={library.displayName(novel)}
           metadata={novelMetadata}
           chapterCount={chapters.length}
@@ -434,6 +447,7 @@ export function App() {
           previousChapter={previousChapter}
           nextChapter={nextChapter}
           readerTab={readerTab}
+          readerReady={loadedFile === selectedFile && Boolean(selectedFile)}
           source={source}
           translated={translated}
           onChooseBook={() => navigate("/books")}

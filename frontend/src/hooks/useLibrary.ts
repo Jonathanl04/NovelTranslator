@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NavigateFunction } from "react-router-dom";
 import { api } from "@/api";
 import type { NovelMetadata, QidianAuthState, ScrapeState } from "@/types";
-import { SELECTED_CHAPTER_STORAGE_KEY } from "@/appUtils";
+import { clearReadingProgress } from "@/appUtils";
 
 const BOOKS_PER_PAGE = 12;
 
@@ -160,7 +160,7 @@ export function useLibrary({ navigate, selectedNovel, onStatus, onDeleteSelected
     if (!window.confirm(`Delete "${displayName(name)}" and all local files for this book?`)) return;
     try {
       await api.deleteNovel(name);
-      localStorage.removeItem(`${SELECTED_CHAPTER_STORAGE_KEY}:${name}`);
+      clearReadingProgress(name);
       setNovels(await api.novels());
       setMetadataByName((current) => {
         const next = { ...current };

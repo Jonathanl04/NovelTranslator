@@ -30,11 +30,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { BulkItem, Chapter, NovelMetadata } from "@/types";
+import { getReadingProgress, saveReadingProgress } from "@/appUtils";
 import { formatInteger } from "./shared";
 
 export type ReaderTab = "raw" | "translated";
 
 export function TranslatePage({
+  novel,
   displayName,
   metadata,
   chapterCount,
@@ -57,6 +59,7 @@ export function TranslatePage({
   previousChapter,
   nextChapter,
   readerTab,
+  readerReady,
   source,
   translated,
   onChooseBook,
@@ -73,6 +76,7 @@ export function TranslatePage({
   onPrevious,
   onNext,
 }: {
+  novel: string;
   displayName: string;
   metadata: NovelMetadata | null;
   chapterCount: number;
@@ -95,6 +99,7 @@ export function TranslatePage({
   previousChapter?: Chapter;
   nextChapter?: Chapter;
   readerTab: ReaderTab;
+  readerReady: boolean;
   source: string;
   translated: string;
   onChooseBook: () => void;
@@ -150,6 +155,7 @@ export function TranslatePage({
 
         <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] gap-4">
           <ReaderPanel
+            novel={novel}
             title={selectedChapter?.title}
             subtitle={
               selectedChapter
@@ -157,6 +163,7 @@ export function TranslatePage({
                 : "Choose a chapter to preview and translate."
             }
             tab={readerTab}
+            ready={readerReady}
             source={source}
             translated={translated}
             resetKey={selectedFile}
@@ -486,17 +493,21 @@ function ChapterNavigation({
 }
 
 function ReaderPanel({
+  novel,
   title,
   subtitle,
   tab,
+  ready,
   source,
   translated,
   resetKey,
   onTabChange,
 }: {
+  novel: string;
   title?: string;
   subtitle: string;
   tab: ReaderTab;
+  ready: boolean;
   source: string;
   translated: string;
   resetKey: string;
@@ -504,12 +515,42 @@ function ReaderPanel({
 }) {
   const value = tab === "raw" ? source : translated;
   const readerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    textareaRef.current?.scrollTo({ top: 0 });
-    readerRef.current?.scrollIntoView({ block: "start" });
-  }, [resetKey]);
+    if (!novel || !resetKey || !ready) return;
+    const progress = getReadingProgress(novel);
+    const scrollTop = progress?.chapter === resetKey ? progress.scrollTop : 0;
+    const frame = requestAnimationFrame(() => {
+      const reader = readerRef.current;
+      if (!reader) return;
+      const readerTop = reader.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: readerTop + scrollTop });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [novel, ready, resetKey]);
+
+  useEffect(() => {
+    if (!novel || !resetKey || !ready) return;
+    let frame = 0;
+    const saveScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const reader = readerRef.current;
+        if (!reader) return;
+        const readerTop = reader.getBoundingClientRect().top + window.scrollY;
+        saveReadingProgress(novel, {
+          chapter: resetKey,
+          scrollTop: Math.max(0, window.scrollY - readerTop),
+        });
+      });
+    };
+    window.addEventListener("scroll", saveScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", saveScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, [novel, ready, resetKey]);
 
   return (
     <div ref={readerRef} className="grid min-h-0 min-w-0 scroll-mt-16 grid-rows-[auto_auto_1fr] gap-3">
@@ -544,7 +585,6 @@ function ReaderPanel({
         </button>
       </div>
       <Textarea
-        ref={textareaRef}
         value={value}
         readOnly
         className="h-full min-h-64 min-w-0 resize-none whitespace-pre-wrap bg-background font-serif leading-relaxed"
