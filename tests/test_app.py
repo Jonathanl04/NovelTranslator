@@ -15,7 +15,7 @@ import app
 from novel_translator import settings
 from novel_translator.codex_backend import direct_responses_payload, parse_codex_sse
 from novel_translator.server import acquire_server_lock, release_server_lock
-from novel_translator.translation import configured_api_call
+from novel_translator.translation import codex_cache_key, configured_api_call
 
 
 def frontend_source() -> str:
@@ -57,6 +57,7 @@ class TranslatorAppTests(unittest.TestCase):
                 "codex",
                 "gpt-test",
                 {"type": "object"},
+                "cache-key",
             )
 
         self.assertIs(result, expected)
@@ -64,7 +65,16 @@ class TranslatorAppTests(unittest.TestCase):
             "gpt-test",
             [{"role": "user", "content": "hello"}],
             {"type": "object"},
+            "cache-key",
         )
+
+    def test_codex_cache_key_is_stable_per_book_and_workload(self) -> None:
+        glossary_key = codex_cache_key("Book", "glossary")
+
+        self.assertEqual(glossary_key, codex_cache_key("Book", "glossary"))
+        self.assertNotEqual(glossary_key, codex_cache_key("Book", "translation"))
+        self.assertNotEqual(glossary_key, codex_cache_key("Other Book", "glossary"))
+        self.assertLessEqual(len(glossary_key), 64)
 
     def test_codex_model_refresh_preserves_stale_catalog_on_failure(self) -> None:
         model = SimpleNamespace(
@@ -147,11 +157,12 @@ class TranslatorAppTests(unittest.TestCase):
                 return SimpleNamespace(data=[model])
 
         class FakeResponses:
-            def call(self, client, selected_model, messages, output_schema):
+            def call(self, client, selected_model, messages, output_schema, cache_key=""):
                 seen["client"] = client
                 seen["model"] = selected_model
                 seen["messages"] = messages
                 seen["output_schema"] = output_schema
+                seen["cache_key"] = cache_key
                 return {
                     "choices": [{"message": {"content": '{"translated_name":"Test"}'}}],
                     "usage": {
@@ -171,12 +182,14 @@ class TranslatorAppTests(unittest.TestCase):
             "gpt-test",
             [{"role": "user", "content": "Translate this"}],
             {"type": "object"},
+            "cache-key",
         )
 
         self.assertIs(seen["client"], service._codex)
         self.assertEqual(seen["model"], "gpt-test")
         self.assertEqual(seen["messages"], [{"role": "user", "content": "Translate this"}])
         self.assertEqual(seen["output_schema"], {"type": "object"})
+        self.assertEqual(seen["cache_key"], "cache-key")
         self.assertEqual(response["usage"]["total_tokens"], 27)
 
     def test_direct_codex_payload_has_no_tools_and_uses_lowest_reasoning(self) -> None:
@@ -188,6 +201,7 @@ class TranslatorAppTests(unittest.TestCase):
                 {"role": "user", "content": "Text"},
             ],
             schema,
+            "cache-key",
         )
 
         self.assertEqual(payload["instructions"], "Translate accurately.")
@@ -195,11 +209,12 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertFalse(payload["text"]["format"]["strict"])
         self.assertEqual(payload["text"]["format"]["schema"], schema)
         self.assertNotIn("tools", payload)
+        self.assertEqual(payload["prompt_cache_key"], "cache-key")
 
     def test_direct_codex_stream_reports_responses_usage(self) -> None:
         events = [
             b'data: {"type":"response.output_text.delta","delta":"{\\"result\\":\\"ok\\"}"}',
-            b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}',
+            b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"input_tokens_details":{"cached_tokens":8},"output_tokens":3,"total_tokens":15}}}',
             b"data: [DONE]",
         ]
         response = SimpleNamespace(iter_lines=lambda decode_unicode=True: iter(events))
@@ -209,6 +224,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(parsed["choices"][0]["message"]["content"], '{"result":"ok"}')
         self.assertEqual(parsed["usage"]["prompt_tokens"], 12)
         self.assertEqual(parsed["usage"]["total_tokens"], 15)
+        self.assertEqual(parsed["usage"]["prompt_tokens_details"]["cached_tokens"], 8)
 
     def test_successful_codex_login_is_not_failed_by_usage_refresh(self) -> None:
         service = app.CodexService()

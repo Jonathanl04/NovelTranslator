@@ -1,5 +1,6 @@
 import json
 import threading
+import uuid
 from typing import Any, Callable
 
 from .chapters import source_path, split_chapter, write_translation
@@ -45,16 +46,21 @@ def configured_api_call(
     backend: str = "openrouter",
     codex_model: str = "",
     output_schema: dict[str, Any] | None = None,
+    codex_cache_key: str = "",
 ) -> dict[str, Any]:
     if call_api is call_openrouter and backend == "codex":
         if output_schema is None:
             raise AppError("Codex requests require an output schema.", 500)
-        return call_codex(codex_model, messages, output_schema)
+        return call_codex(codex_model, messages, output_schema, codex_cache_key)
     if provider and call_api is call_openrouter:
         return call_api(api_key, model, messages, provider, output_schema=output_schema)
     if call_api is call_openrouter:
         return call_api(api_key, model, messages, output_schema=output_schema)
     return call_api(api_key, model, messages)
+
+
+def codex_cache_key(novel: str, workload: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"novel-translator:{workload}:{novel}"))
 
 
 def require_workload_backend(config: dict[str, Any], workload: str) -> None:
@@ -125,6 +131,7 @@ def populate_glossary_for_chapter(
                 config["glossary_backend"],
                 config["codex_glossary_model"],
                 GLOSSARY_SCHEMA,
+                codex_cache_key(novel, "glossary"),
             )
             try:
                 updates = parse_glossary_response(api_response)
@@ -210,6 +217,7 @@ def translate_chapter(
                     config["translation_backend"],
                     config["codex_translation_model"],
                     TRANSLATION_SCHEMA,
+                    codex_cache_key(novel, "translation"),
                 )
             except AppError as exc:
                 if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:

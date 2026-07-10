@@ -31,10 +31,11 @@ class CodexResponsesAdapter:
         model: str,
         messages: list[dict[str, str]],
         output_schema: dict[str, Any],
+        cache_key: str = "",
     ) -> dict[str, Any]:
         client.account(refresh_token=True)
         token, account_id = self._credentials()
-        payload = direct_responses_payload(model, messages, output_schema)
+        payload = direct_responses_payload(model, messages, output_schema, cache_key)
         headers = {
             "Authorization": f"Bearer {token}",
             "chatgpt-account-id": account_id,
@@ -44,6 +45,9 @@ class CodexResponsesAdapter:
             "Accept": "text/event-stream",
             "Content-Type": "application/json",
         }
+        if cache_key:
+            headers["session-id"] = cache_key
+            headers["x-client-request-id"] = cache_key
         try:
             response = self._post(
                 CODEX_RESPONSES_URL,
@@ -311,6 +315,7 @@ class CodexService:
         model: str,
         messages: list[dict[str, str]],
         output_schema: dict[str, Any],
+        cache_key: str = "",
     ) -> dict[str, Any]:
         model = model.strip()
         if not model:
@@ -327,7 +332,7 @@ class CodexService:
 
         try:
             response = self._responses.call(
-                self._client(), model, messages, output_schema
+                self._client(), model, messages, output_schema, cache_key
             )
         except AppError:
             raise
@@ -346,6 +351,7 @@ def direct_responses_payload(
     model: str,
     messages: list[dict[str, str]],
     output_schema: dict[str, Any],
+    cache_key: str = "",
 ) -> dict[str, Any]:
     instructions = "\n\n".join(
         str(message.get("content", ""))
@@ -381,7 +387,7 @@ def direct_responses_payload(
                     "content": [{"type": "input_text", "text": content}],
                 }
             )
-    return {
+    payload = {
         "model": model,
         "store": False,
         "stream": True,
@@ -399,6 +405,9 @@ def direct_responses_payload(
         "include": ["reasoning.encrypted_content"],
         "reasoning": {"effort": "none", "summary": "auto"},
     }
+    if cache_key:
+        payload["prompt_cache_key"] = cache_key
+    return payload
 
 
 def parse_codex_sse(response: Any) -> dict[str, Any]:
@@ -494,8 +503,9 @@ def call_codex(
     model: str,
     messages: list[dict[str, str]],
     output_schema: dict[str, Any],
+    cache_key: str = "",
 ) -> dict[str, Any]:
-    return _service.call(model, messages, output_schema)
+    return _service.call(model, messages, output_schema, cache_key)
 
 
 def close_codex() -> None:

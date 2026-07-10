@@ -440,11 +440,11 @@ function ChapterNavigation({
   const hasChapter = currentIndex >= 0 && total > 0;
 
   return (
-    <footer className="fixed inset-x-0 bottom-0 z-30 mx-auto grid min-w-0 max-w-6xl gap-2 border-t bg-background/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur sm:px-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+    <footer className="fixed inset-x-0 bottom-0 z-30 mx-auto grid min-w-0 max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 border-t bg-background/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur sm:px-4">
       <Button
         type="button"
         variant="outline"
-        className="min-h-10 justify-start gap-2 whitespace-normal"
+        className="min-h-10 min-w-0 justify-start gap-2 whitespace-normal"
         disabled={!previousChapter}
         onClick={onPrevious}
       >
@@ -471,7 +471,7 @@ function ChapterNavigation({
       <Button
         type="button"
         variant="outline"
-        className="min-h-10 justify-end gap-2 whitespace-normal"
+        className="min-h-10 min-w-0 justify-end gap-2 whitespace-normal"
         disabled={!nextChapter}
         onClick={onNext}
       >
