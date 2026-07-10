@@ -74,7 +74,8 @@ def post_openrouter(api_key: str, usage_model: str, payload: dict[str, Any], ope
         raise AppError(OPENROUTER_TIMEOUT_MESSAGE, 502) from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        if should_retry_without_json_schema(payload, detail):
+        response_format = unavailable_response_format(payload, detail)
+        if response_format == "json_schema":
             payload_provider = provider_from_payload(payload)
             remember_json_schema_unsupported(usage_model, payload_provider)
             retry_payload = dict(payload)
@@ -83,7 +84,7 @@ def post_openrouter(api_key: str, usage_model: str, payload: dict[str, Any], ope
             else:
                 retry_payload.pop("response_format", None)
             return post_openrouter(api_key, usage_model, retry_payload, opener)
-        if should_retry_without_json_object(payload, detail):
+        if response_format == "json_object":
             remember_json_object_unsupported(usage_model, provider_from_payload(payload))
             retry_payload = dict(payload)
             retry_payload.pop("response_format", None)
@@ -108,32 +109,26 @@ def post_openrouter(api_key: str, usage_model: str, payload: dict[str, Any], ope
     return data
 
 
-def should_retry_without_json_object(payload: dict[str, Any], detail: str) -> bool:
+def unavailable_response_format(payload: dict[str, Any], detail: str) -> str | None:
     response_format = payload.get("response_format")
-    if not isinstance(response_format, dict) or response_format.get("type") != "json_object":
-        return False
-    detail_lower = detail.lower()
-    return "json_object" in detail_lower and (
-        "response format" in detail_lower or "response_format" in detail_lower
-    )
-
-
-def should_retry_without_json_schema(payload: dict[str, Any], detail: str) -> bool:
-    response_format = payload.get("response_format")
-    if not isinstance(response_format, dict) or response_format.get("type") != "json_schema":
-        return False
+    if not isinstance(response_format, dict):
+        return None
+    format_type = response_format.get("type")
+    if format_type not in {"json_schema", "json_object"}:
+        return None
     detail_lower = detail.lower()
     format_mentioned = (
-        "json_schema" in detail_lower
+        format_type in detail_lower
         or "structured output" in detail_lower
-        or ("response_format" in detail_lower and "json_object" in detail_lower)
-    )
-    return format_mentioned and (
-        "response format" in detail_lower
         or "response_format" in detail_lower
-        or "not support" in detail_lower
-        or "unsupported" in detail_lower
+        or "response format" in detail_lower
     )
+    unavailable = (
+        "not support" in detail_lower
+        or "unsupported" in detail_lower
+        or "unavailable" in detail_lower
+    )
+    return str(format_type) if format_mentioned and unavailable else None
 
 
 def json_object_supported(model: str, provider: str) -> bool:

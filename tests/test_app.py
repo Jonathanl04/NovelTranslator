@@ -791,7 +791,7 @@ class TranslatorAppTests(unittest.TestCase):
                     400,
                     "Bad Request",
                     {},
-                    FakeErrorBody(b'{"error":{"message":"Provider does not support json_schema response_format."}}'),
+                    FakeErrorBody(b'{"error":{"message":"This response format is unavailable"}}'),
                 )
             if response_type == "json_object":
                 raise HTTPError(
@@ -799,7 +799,7 @@ class TranslatorAppTests(unittest.TestCase):
                     400,
                     "Bad Request",
                     {},
-                    FakeErrorBody(b'{"error":{"message":"Provider does not support json_object response_format."}}'),
+                    FakeErrorBody(b'{"error":{"message":"This response_format type is unavailable"}}'),
                 )
             return FakeResponse()
 
