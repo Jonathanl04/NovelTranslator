@@ -15,6 +15,26 @@ from .usage import record_llm_usage
 
 CODEX_TIMEOUT_SECONDS = 300
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+FIXED_CODEX_MODELS = (
+    {
+        "id": "gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "description": "Fast GPT-5.6 Codex model.",
+        "is_default": False,
+    },
+    {
+        "id": "gpt-5.6-sol",
+        "name": "GPT-5.6 Sol",
+        "description": "Most capable GPT-5.6 Codex model.",
+        "is_default": False,
+    },
+    {
+        "id": "gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "description": "Balanced GPT-5.6 Codex model.",
+        "is_default": False,
+    },
+)
 
 
 class CodexResponsesAdapter:
@@ -233,6 +253,10 @@ class CodexService:
                 for item in response.data
                 if not item.hidden
             ]
+            discovered_ids = {model["id"] for model in models}
+            models.extend(
+                dict(model) for model in FIXED_CODEX_MODELS if model["id"] not in discovered_ids
+            )
             result = {
                 "models": models,
                 "fetched_at": int(time.time()),
