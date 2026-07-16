@@ -8,6 +8,7 @@ _empty_usage = {
     "prompt_cache_miss_tokens": 0,
     "prompt_tokens": 0,
     "completion_tokens": 0,
+    "reasoning_tokens": 0,
     "total_tokens": 0,
     "cost_usd": 0.0,
 }
@@ -22,6 +23,10 @@ def record_llm_usage(model: str, response: dict[str, Any]) -> None:
 
     prompt_tokens = int_token(usage.get("prompt_tokens"))
     completion_tokens = int_token(usage.get("completion_tokens"))
+    completion_details = usage.get("completion_tokens_details")
+    reasoning_tokens = int_token(usage.get("reasoning_tokens"))
+    if not reasoning_tokens and isinstance(completion_details, dict):
+        reasoning_tokens = int_token(completion_details.get("reasoning_tokens"))
     total_tokens = int_token(usage.get("total_tokens")) or prompt_tokens + completion_tokens
     hit_tokens = int_token(usage.get("prompt_cache_hit_tokens"))
     miss_tokens = int_token(usage.get("prompt_cache_miss_tokens"))
@@ -40,6 +45,7 @@ def record_llm_usage(model: str, response: dict[str, Any]) -> None:
         bucket["prompt_cache_miss_tokens"] += miss_tokens
         bucket["prompt_tokens"] += prompt_tokens
         bucket["completion_tokens"] += completion_tokens
+        bucket["reasoning_tokens"] += reasoning_tokens
         bucket["total_tokens"] += total_tokens
         bucket["cost_usd"] += cost
 

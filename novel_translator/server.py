@@ -204,6 +204,8 @@ class Handler(BaseHTTPRequestHandler):
                 "openrouter_api_key_mask": mask_key(saved["openrouter_api_key"]),
                 "translation_backend": saved["translation_backend"],
                 "glossary_backend": saved["glossary_backend"],
+                "translation_reasoning_effort": saved["translation_reasoning_effort"],
+                "glossary_reasoning_effort": saved["glossary_reasoning_effort"],
                 "codex_translation_model": saved["codex_translation_model"],
                 "codex_glossary_model": saved["codex_glossary_model"],
                 "translation_model": saved["translation_model"],

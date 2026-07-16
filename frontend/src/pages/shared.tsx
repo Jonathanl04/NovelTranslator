@@ -5,6 +5,7 @@ export const emptyUsageBucket: UsageBucket = {
   prompt_cache_miss_tokens: 0,
   prompt_tokens: 0,
   completion_tokens: 0,
+  reasoning_tokens: 0,
   total_tokens: 0,
   cost_usd: 0,
 };
@@ -23,6 +24,8 @@ export function UsageSummary({ usage }: { usage: UsageBucket }) {
         <span className="text-right tabular-nums">{formatInteger(usage.prompt_cache_miss_tokens)}</span>
         <span>Output</span>
         <span className="text-right tabular-nums">{formatInteger(usage.completion_tokens)}</span>
+        <span>Reasoning</span>
+        <span className="text-right tabular-nums">{formatInteger(usage.reasoning_tokens)}</span>
         <span>Total tokens</span>
         <span className="text-right tabular-nums">{formatInteger(usage.total_tokens)}</span>
       </div>

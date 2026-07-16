@@ -25,18 +25,22 @@ def call_openrouter(
     provider: str = "",
     opener: Any = urllib.request.urlopen,
     output_schema: dict[str, Any] | None = None,
+    reasoning_effort: str = "none",
 ) -> dict[str, Any]:
     if callable(provider):
         opener = provider
         provider = ""
+    if reasoning_effort not in {"none", "low", "medium", "high"}:
+        raise AppError("Reasoning effort must be 'none', 'low', 'medium', or 'high'.")
     payload = {
         "model": model,
         "messages": messages,
         "temperature": 1,
         "stream": False,
-        "thinking": {"type": "disabled"},
-        "reasoning": {"effort": "none", "exclude": True},
+        "reasoning": {"effort": reasoning_effort, "exclude": True},
     }
+    if reasoning_effort == "none":
+        payload["thinking"] = {"type": "disabled"}
     if output_schema is not None and json_schema_supported(model, provider):
         payload["response_format"] = {
             "type": "json_schema",

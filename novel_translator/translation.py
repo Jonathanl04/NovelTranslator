@@ -47,15 +47,31 @@ def configured_api_call(
     codex_model: str = "",
     output_schema: dict[str, Any] | None = None,
     codex_cache_key: str = "",
+    reasoning_effort: str = "none",
 ) -> dict[str, Any]:
     if call_api is call_openrouter and backend == "codex":
         if output_schema is None:
             raise AppError("Codex requests require an output schema.", 500)
-        return call_codex(codex_model, messages, output_schema, codex_cache_key)
+        return call_codex(
+            codex_model, messages, output_schema, codex_cache_key, reasoning_effort
+        )
     if provider and call_api is call_openrouter:
-        return call_api(api_key, model, messages, provider, output_schema=output_schema)
+        return call_api(
+            api_key,
+            model,
+            messages,
+            provider,
+            output_schema=output_schema,
+            reasoning_effort=reasoning_effort,
+        )
     if call_api is call_openrouter:
-        return call_api(api_key, model, messages, output_schema=output_schema)
+        return call_api(
+            api_key,
+            model,
+            messages,
+            output_schema=output_schema,
+            reasoning_effort=reasoning_effort,
+        )
     return call_api(api_key, model, messages)
 
 
@@ -132,6 +148,7 @@ def populate_glossary_for_chapter(
                 config["codex_glossary_model"],
                 GLOSSARY_SCHEMA,
                 codex_cache_key(novel, "glossary"),
+                config["glossary_reasoning_effort"],
             )
             try:
                 updates = parse_glossary_response(api_response)
@@ -218,6 +235,7 @@ def translate_chapter(
                     config["codex_translation_model"],
                     TRANSLATION_SCHEMA,
                     codex_cache_key(novel, "translation"),
+                    config["translation_reasoning_effort"],
                 )
             except AppError as exc:
                 if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
@@ -256,6 +274,7 @@ def translate_chapter(
                 config["translation_backend"],
                 config["codex_translation_model"],
                 FRAGMENT_REPLACEMENTS_SCHEMA,
+                reasoning_effort=config["translation_reasoning_effort"],
             )
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
@@ -282,6 +301,7 @@ def translate_chapter(
                 config["translation_backend"],
                 config["codex_translation_model"],
                 TRANSLATION_SCHEMA,
+                reasoning_effort=config["translation_reasoning_effort"],
             )
             try:
                 parsed = parse_translation_response(repair_response)

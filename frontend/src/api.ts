@@ -46,6 +46,8 @@ export const api = {
     keep_existing_openrouter_key: boolean;
     translation_backend: Config["translation_backend"];
     glossary_backend: Config["glossary_backend"];
+    translation_reasoning_effort: Config["translation_reasoning_effort"];
+    glossary_reasoning_effort: Config["glossary_reasoning_effort"];
     codex_translation_model: string;
     codex_glossary_model: string;
     translation_model: string;

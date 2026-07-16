@@ -52,10 +52,13 @@ class CodexResponsesAdapter:
         messages: list[dict[str, str]],
         output_schema: dict[str, Any],
         cache_key: str = "",
+        reasoning_effort: str = "none",
     ) -> dict[str, Any]:
         client.account(refresh_token=True)
         token, account_id = self._credentials()
-        payload = direct_responses_payload(model, messages, output_schema, cache_key)
+        payload = direct_responses_payload(
+            model, messages, output_schema, cache_key, reasoning_effort
+        )
         headers = {
             "Authorization": f"Bearer {token}",
             "chatgpt-account-id": account_id,
@@ -340,6 +343,7 @@ class CodexService:
         messages: list[dict[str, str]],
         output_schema: dict[str, Any],
         cache_key: str = "",
+        reasoning_effort: str = "none",
     ) -> dict[str, Any]:
         model = model.strip()
         if not model:
@@ -356,7 +360,7 @@ class CodexService:
 
         try:
             response = self._responses.call(
-                self._client(), model, messages, output_schema, cache_key
+                self._client(), model, messages, output_schema, cache_key, reasoning_effort
             )
         except AppError:
             raise
@@ -376,7 +380,10 @@ def direct_responses_payload(
     messages: list[dict[str, str]],
     output_schema: dict[str, Any],
     cache_key: str = "",
+    reasoning_effort: str = "none",
 ) -> dict[str, Any]:
+    if reasoning_effort not in {"none", "low", "medium", "high"}:
+        raise AppError("Reasoning effort must be 'none', 'low', 'medium', or 'high'.")
     instructions = "\n\n".join(
         str(message.get("content", ""))
         for message in messages
@@ -427,7 +434,7 @@ def direct_responses_payload(
             },
         },
         "include": ["reasoning.encrypted_content"],
-        "reasoning": {"effort": "none", "summary": "auto"},
+        "reasoning": {"effort": reasoning_effort, "summary": "auto"},
     }
     if cache_key:
         payload["prompt_cache_key"] = cache_key
@@ -528,8 +535,9 @@ def call_codex(
     messages: list[dict[str, str]],
     output_schema: dict[str, Any],
     cache_key: str = "",
+    reasoning_effort: str = "none",
 ) -> dict[str, Any]:
-    return _service.call(model, messages, output_schema, cache_key)
+    return _service.call(model, messages, output_schema, cache_key, reasoning_effort)
 
 
 def close_codex() -> None:

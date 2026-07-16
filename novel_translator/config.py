@@ -6,6 +6,7 @@ from .errors import AppError
 from .json_store import read_json, write_json
 
 ALLOWED_BACKENDS = {"openrouter", "codex"}
+ALLOWED_REASONING_EFFORTS = {"none", "low", "medium", "high"}
 
 
 def load_config() -> dict[str, Any]:
@@ -34,6 +35,12 @@ def load_config() -> dict[str, Any]:
         "openrouter_api_key": openrouter_api_key,
         "translation_backend": backend_for_config(config, "translation_backend"),
         "glossary_backend": backend_for_config(config, "glossary_backend"),
+        "translation_reasoning_effort": reasoning_effort_for_config(
+            config, "translation_reasoning_effort"
+        ),
+        "glossary_reasoning_effort": reasoning_effort_for_config(
+            config, "glossary_reasoning_effort"
+        ),
         "codex_translation_model": str(config.get("codex_translation_model", "")).strip(),
         "codex_glossary_model": str(config.get("codex_glossary_model", "")).strip(),
         "translation_model": translation_model,
@@ -79,6 +86,12 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
     glossary_model, glossary_provider = normalize_preset_model(glossary_model, glossary_provider)
     translation_backend = selected_backend(config, "translation_backend", current)
     glossary_backend = selected_backend(config, "glossary_backend", current)
+    translation_reasoning_effort = selected_reasoning_effort(
+        config, "translation_reasoning_effort", current
+    )
+    glossary_reasoning_effort = selected_reasoning_effort(
+        config, "glossary_reasoning_effort", current
+    )
     codex_translation_model = str(
         config.get("codex_translation_model", current["codex_translation_model"])
     ).strip()
@@ -93,6 +106,8 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
         "openrouter_api_key": openrouter_api_key,
         "translation_backend": translation_backend,
         "glossary_backend": glossary_backend,
+        "translation_reasoning_effort": translation_reasoning_effort,
+        "glossary_reasoning_effort": glossary_reasoning_effort,
         "codex_translation_model": codex_translation_model,
         "codex_glossary_model": codex_glossary_model,
         "translation_model": translation_model,
@@ -114,6 +129,8 @@ def public_config() -> dict[str, Any]:
         "openrouter_api_key_mask": mask_key(config["openrouter_api_key"]),
         "translation_backend": config["translation_backend"],
         "glossary_backend": config["glossary_backend"],
+        "translation_reasoning_effort": config["translation_reasoning_effort"],
+        "glossary_reasoning_effort": config["glossary_reasoning_effort"],
         "codex_translation_model": config["codex_translation_model"],
         "codex_glossary_model": config["codex_glossary_model"],
         "translation_model": config["translation_model"],
@@ -143,6 +160,20 @@ def selected_backend(config: dict[str, Any], key: str, current: dict[str, Any]) 
     if backend not in ALLOWED_BACKENDS:
         raise AppError(f"{key} must be 'openrouter' or 'codex'.")
     return backend
+
+
+def reasoning_effort_for_config(config: dict[str, Any], key: str) -> str:
+    effort = str(config.get(key, "none")).strip() or "none"
+    return effort if effort in ALLOWED_REASONING_EFFORTS else "none"
+
+
+def selected_reasoning_effort(
+    config: dict[str, Any], key: str, current: dict[str, Any]
+) -> str:
+    effort = str(config.get(key, current[key])).strip() or current[key]
+    if effort not in ALLOWED_REASONING_EFFORTS:
+        raise AppError(f"{key} must be 'none', 'low', 'medium', or 'high'.")
+    return effort
 
 
 def safe_file_stem(value: str) -> str:

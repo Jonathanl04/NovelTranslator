@@ -65,7 +65,12 @@ def ensure_translated_novel_name(
         raise AppError("Bulk translation aborted.", 409)
     messages = build_novel_name_messages(safe_novel)
     if call_api is call_openrouter and backend == "codex":
-        response = call_codex(config["codex_translation_model"], messages, NOVEL_NAME_SCHEMA)
+        response = call_codex(
+            config["codex_translation_model"],
+            messages,
+            NOVEL_NAME_SCHEMA,
+            reasoning_effort=config["translation_reasoning_effort"],
+        )
     elif call_api is call_openrouter:
         response = call_api(
             api_key,
@@ -73,6 +78,7 @@ def ensure_translated_novel_name(
             messages,
             config["translation_provider"],
             output_schema=NOVEL_NAME_SCHEMA,
+            reasoning_effort=config["translation_reasoning_effort"],
         )
     else:
         response = call_api(api_key, config["translation_model"], messages)

@@ -94,9 +94,10 @@ Use the Settings page to configure:
 - OpenRouter or Codex backend for glossary and translation independently
 - Glossary model
 - Translation model
+- None, low, medium, or high reasoning for glossary and translation independently
 - Added custom models
 
-OpenRouter requests use its chat completions API. Codex requests use an experimental minimal direct Responses adapter with no coding tools and the lowest reasoning level accepted by the selected model. Authentication, model discovery, and remaining-usage reporting still use the pinned SDK and its managed ChatGPT credentials. Codex requests consume Codex plan limits or ChatGPT credits rather than general OpenAI API quota.
+OpenRouter requests use its chat completions API. Codex requests use an experimental minimal direct Responses adapter with no coding tools. Both backends use the configured reasoning effort. Authentication, model discovery, and remaining-usage reporting still use the pinned SDK and its managed ChatGPT credentials. Codex requests consume Codex plan limits or ChatGPT credits rather than general OpenAI API quota.
 
 For OpenRouter, each structured request first uses the same non-strict JSON Schema as Codex. If the selected model/provider rejects schema mode, the app remembers that limitation and falls back to JSON-object mode, then to no response format if necessary. Existing parse and repair retries handle malformed responses after those transport fallbacks.
 
@@ -127,7 +128,7 @@ Using the same model for both can improve cache-hit opportunities because glossa
 
 Usage and cost:
 
-- Token usage is shown as one combined total. Codex rows are prefixed with `codex:`.
+- Token usage shows combined input, output, reasoning, and total tokens. Codex rows are prefixed with `codex:`.
 - Cost is recorded from OpenRouter `usage.cost`, including upstream BYOK cost when OpenRouter reports it.
 - Reported API cost excludes subscription-backed Codex usage because OpenAI does not return a per-request USD cost for it.
 - If OpenRouter omits cost, the app records `0` instead of estimating from hardcoded rates.

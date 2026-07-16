@@ -19,6 +19,7 @@ import type {
   Config,
   LlmBackend,
   OpenRouterProvider,
+  ReasoningEffort,
   Usage,
 } from "@/types";
 import { UsageSummary } from "./shared";
@@ -196,6 +197,13 @@ export function SettingsPage({
     await onSaveConfig(patch);
   }
 
+  async function selectReasoning(kind: "glossary" | "translation", effort: ReasoningEffort) {
+    const key = `${kind}_reasoning_effort` as const;
+    const patch: Partial<Config> = { [key]: effort };
+    onConfigChange(patch);
+    await onSaveConfig(patch);
+  }
+
   function removeAddedModel(index: number) {
     const added_models = config.added_models.filter((_, itemIndex) => itemIndex !== index);
     onConfigChange({ added_models });
@@ -291,9 +299,11 @@ export function SettingsPage({
               codexModel={config.codex_glossary_model}
               codexModels={codexModels}
               codexSignedIn={Boolean(codexAuth?.signed_in)}
+              reasoningEffort={config.glossary_reasoning_effort}
               onBackendChange={(backend) => selectBackend("glossary", backend)}
               onSelectCodexModel={(model) => selectCodexModel("glossary", model)}
               onSelectModel={(index) => selectModel("glossary", index)}
+              onReasoningChange={(effort) => selectReasoning("glossary", effort)}
             />
             <WorkloadModelEditor
               kind="translation"
@@ -305,9 +315,11 @@ export function SettingsPage({
               codexModel={config.codex_translation_model}
               codexModels={codexModels}
               codexSignedIn={Boolean(codexAuth?.signed_in)}
+              reasoningEffort={config.translation_reasoning_effort}
               onBackendChange={(backend) => selectBackend("translation", backend)}
               onSelectCodexModel={(model) => selectCodexModel("translation", model)}
               onSelectModel={(index) => selectModel("translation", index)}
+              onReasoningChange={(effort) => selectReasoning("translation", effort)}
             />
           </div>
           <section className="grid gap-3 rounded-md border p-3">
@@ -410,9 +422,11 @@ function WorkloadModelEditor({
   codexModel,
   codexModels,
   codexSignedIn,
+  reasoningEffort,
   onBackendChange,
   onSelectModel,
   onSelectCodexModel,
+  onReasoningChange,
 }: {
   kind: "glossary" | "translation";
   title: string;
@@ -423,9 +437,11 @@ function WorkloadModelEditor({
   codexModel: string;
   codexModels: CodexModels | null;
   codexSignedIn: boolean;
+  reasoningEffort: ReasoningEffort;
   onBackendChange: (backend: LlmBackend) => void;
   onSelectModel: (index: string) => void;
   onSelectCodexModel: (model: string) => void;
+  onReasoningChange: (effort: ReasoningEffort) => void;
 }) {
   const available = codexModels?.models.some((item) => item.id === codexModel) ?? false;
   return (
@@ -455,6 +471,19 @@ function WorkloadModelEditor({
           {!available ? <p className="text-xs text-destructive">Refresh models and select an available model.</p> : null}
         </div>
       )}
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${kind}-reasoning-settings`}>Reasoning</Label>
+        <Select value={reasoningEffort} onValueChange={(value) => onReasoningChange(value as ReasoningEffort)}>
+          <SelectTrigger id={`${kind}-reasoning-settings`} className="w-full bg-background"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            <SelectItem value="low">Low</SelectItem>
+            <SelectItem value="medium">Medium</SelectItem>
+            <SelectItem value="high">High</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">Higher effort can improve difficult passages with additional latency and tokens.</p>
+      </div>
     </div>
   );
 }

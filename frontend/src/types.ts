@@ -9,6 +9,7 @@ export type OpenRouterProvider = {
 };
 
 export type LlmBackend = "openrouter" | "codex";
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
 export type CodexAuth = {
   available: boolean;
@@ -63,6 +64,8 @@ export type Config = {
   openrouter_api_key_mask: string;
   translation_backend: LlmBackend;
   glossary_backend: LlmBackend;
+  translation_reasoning_effort: ReasoningEffort;
+  glossary_reasoning_effort: ReasoningEffort;
   codex_translation_model: string;
   codex_glossary_model: string;
   translation_model: string;
@@ -134,6 +137,7 @@ export type UsageBucket = {
   prompt_cache_miss_tokens: number;
   prompt_tokens: number;
   completion_tokens: number;
+  reasoning_tokens: number;
   total_tokens: number;
   cost_usd: number;
 };

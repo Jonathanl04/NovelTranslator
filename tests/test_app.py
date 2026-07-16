@@ -58,6 +58,7 @@ class TranslatorAppTests(unittest.TestCase):
                 "gpt-test",
                 {"type": "object"},
                 "cache-key",
+                "low",
             )
 
         self.assertIs(result, expected)
@@ -66,6 +67,7 @@ class TranslatorAppTests(unittest.TestCase):
             [{"role": "user", "content": "hello"}],
             {"type": "object"},
             "cache-key",
+            "low",
         )
 
     def test_codex_cache_key_is_stable_per_book_and_workload(self) -> None:
@@ -157,12 +159,21 @@ class TranslatorAppTests(unittest.TestCase):
                 return SimpleNamespace(data=[model])
 
         class FakeResponses:
-            def call(self, client, selected_model, messages, output_schema, cache_key=""):
+            def call(
+                self,
+                client,
+                selected_model,
+                messages,
+                output_schema,
+                cache_key="",
+                reasoning_effort="none",
+            ):
                 seen["client"] = client
                 seen["model"] = selected_model
                 seen["messages"] = messages
                 seen["output_schema"] = output_schema
                 seen["cache_key"] = cache_key
+                seen["reasoning_effort"] = reasoning_effort
                 return {
                     "choices": [{"message": {"content": '{"translated_name":"Test"}'}}],
                     "usage": {
@@ -190,6 +201,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(seen["messages"], [{"role": "user", "content": "Translate this"}])
         self.assertEqual(seen["output_schema"], {"type": "object"})
         self.assertEqual(seen["cache_key"], "cache-key")
+        self.assertEqual(seen["reasoning_effort"], "none")
         self.assertEqual(response["usage"]["total_tokens"], 27)
 
     def test_direct_codex_payload_has_no_tools_and_uses_lowest_reasoning(self) -> None:
@@ -210,6 +222,12 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(payload["text"]["format"]["schema"], schema)
         self.assertNotIn("tools", payload)
         self.assertEqual(payload["prompt_cache_key"], "cache-key")
+
+        for effort in ("low", "medium", "high"):
+            reasoning_payload = direct_responses_payload(
+                "gpt-test", [], schema, reasoning_effort=effort
+            )
+            self.assertEqual(reasoning_payload["reasoning"]["effort"], effort)
 
     def test_direct_codex_stream_reports_responses_usage(self) -> None:
         events = [
@@ -545,6 +563,7 @@ class TranslatorAppTests(unittest.TestCase):
                     "prompt_cache_miss_tokens": 200,
                     "prompt_tokens": 300,
                     "completion_tokens": 400,
+                    "completion_tokens_details": {"reasoning_tokens": 50},
                     "total_tokens": 700,
                     "cost": 0.0123,
                 }
@@ -570,11 +589,13 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(flash["prompt_cache_miss_tokens"], 200)
         self.assertEqual(flash["prompt_tokens"], 300)
         self.assertEqual(flash["completion_tokens"], 400)
+        self.assertEqual(flash["reasoning_tokens"], 50)
         self.assertEqual(flash["total_tokens"], 700)
         self.assertEqual(flash["cost_usd"], 0.0123)
         self.assertEqual(pro["total_tokens"], 70)
         self.assertEqual(pro["cost_usd"], 0.0)
         self.assertEqual(usage["total"]["total_tokens"], 770)
+        self.assertEqual(usage["total"]["reasoning_tokens"], 50)
         self.assertEqual(usage["total"]["cost_usd"], 0.0123)
         self.assertEqual(app.reset_usage()["total"]["total_tokens"], 0)
 
@@ -666,6 +687,7 @@ class TranslatorAppTests(unittest.TestCase):
             [{"role": "user", "content": "Hi"}],
             "xiaomi",
             fake_opener,
+            reasoning_effort="low",
         )
 
         self.assertEqual(seen["url"], settings.OPENROUTER_URL)
@@ -675,8 +697,7 @@ class TranslatorAppTests(unittest.TestCase):
             {
                 "model": "xiaomi/mimo-v2.5-pro",
                 "messages": [{"role": "user", "content": "Hi"}],
-                "thinking": {"type": "disabled"},
-                "reasoning": {"effort": "none", "exclude": True},
+                "reasoning": {"effort": "low", "exclude": True},
                 "temperature": 1,
                 "stream": False,
                 "response_format": {"type": "json_object"},
@@ -906,6 +927,8 @@ class TranslatorAppTests(unittest.TestCase):
                     "translation_provider": "xiaomi",
                     "glossary_model": "xiaomi/mimo-v2.5-pro",
                     "glossary_provider": "xiaomi",
+                    "translation_reasoning_effort": "high",
+                    "glossary_reasoning_effort": "medium",
                 }
             )
 
@@ -914,6 +937,8 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(saved["translation_provider"], "xiaomi")
         self.assertEqual(saved["glossary_model"], "xiaomi/mimo-v2.5-pro")
         self.assertEqual(saved["glossary_provider"], "xiaomi")
+        self.assertEqual(saved["translation_reasoning_effort"], "high")
+        self.assertEqual(saved["glossary_reasoning_effort"], "medium")
 
     def test_save_config_accepts_custom_models_providers_and_added_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
