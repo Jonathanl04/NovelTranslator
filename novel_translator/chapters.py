@@ -1,12 +1,18 @@
 import shutil
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from urllib.parse import quote
 
 from . import settings
 from .errors import AppError
-from .json_store import read_json
+from .json_store import read_json, write_json
 from .source_language import contains_source_language_text
+
+
+CHAPTER_INDEX_VERSION = 1
+CHAPTER_INDEX_FILENAME = "chapter_index.json"
+_chapter_index_lock = Lock()
 
 
 def safe_segment(value: str, label: str) -> str:
@@ -204,20 +210,95 @@ def list_chapters(
     if not novel_dir.exists() or not novel_dir.is_dir():
         raise AppError("Novel not found.", 404)
 
+    with _chapter_index_lock:
+        index = _load_chapter_index(novel, output_root, translated_root)
+        if index is None:
+            index = _rebuild_chapter_index(novel, output_root, translated_root)
+        return index["chapters"]
+
+
+def chapter_index_path(novel: str, output_root: Path | None = None) -> Path:
+    output_root = output_root or settings.OUTPUT_ROOT
+    return output_root / safe_segment(novel, "novel") / CHAPTER_INDEX_FILENAME
+
+
+def rebuild_chapter_manifest(
+    novel: str,
+    output_root: Path | None = None,
+    translated_root: Path | None = None,
+) -> list[dict[str, Any]]:
+    output_root = output_root or settings.OUTPUT_ROOT
+    translated_root = translated_root or settings.TRANSLATED_ROOT
+    novel = safe_segment(novel, "novel")
+    novel_dir = output_root / novel / "source"
+    if not novel_dir.exists() or not novel_dir.is_dir():
+        raise AppError("Novel not found.", 404)
+    with _chapter_index_lock:
+        return _rebuild_chapter_index(novel, output_root, translated_root)["chapters"]
+
+
+def _load_chapter_index(
+    novel: str, output_root: Path, translated_root: Path
+) -> dict[str, Any] | None:
+    index = _read_chapter_index(chapter_index_path(novel, output_root))
+    if not isinstance(index, dict) or index.get("version") != CHAPTER_INDEX_VERSION:
+        return None
+    if not isinstance(index.get("chapters"), list):
+        return None
+    if index.get("source_mtime_ns") != _directory_mtime_ns(output_root / novel / "source"):
+        return None
+    if index.get("translated_mtime_ns") != _directory_mtime_ns(
+        translated_root / novel / "translated"
+    ):
+        return None
+    return index
+
+
+def _rebuild_chapter_index(
+    novel: str, output_root: Path, translated_root: Path
+) -> dict[str, Any]:
+    novel_dir = output_root / novel / "source"
+    translated_dir = translated_root / novel / "translated"
+    translated_files = (
+        {path.name: path for path in translated_dir.glob("*.txt")}
+        if translated_dir.is_dir()
+        else {}
+    )
     chapters = []
     for path in sorted(novel_dir.glob("*.txt"), key=_chapter_sort_key):
-        target = translated_path(novel, path.name, translated_root)
-        translated_exists = target.exists()
+        target = translated_files.get(path.name)
+        translated_exists = target is not None
         chapters.append(
             {
                 "filename": path.name,
                 "title": chapter_label(path.name, target),
                 "translated": translated_exists,
                 "source_size": path.stat().st_size,
-                "translated_size": target.stat().st_size if translated_exists else 0,
+                "translated_size": target.stat().st_size if target else 0,
             }
         )
-    return chapters
+    index = {
+        "version": CHAPTER_INDEX_VERSION,
+        "source_mtime_ns": _directory_mtime_ns(novel_dir),
+        "translated_mtime_ns": _directory_mtime_ns(translated_dir),
+        "chapters": chapters,
+    }
+    write_json(chapter_index_path(novel, output_root), index)
+    return index
+
+
+def _directory_mtime_ns(path: Path) -> int:
+    try:
+        return path.stat().st_mtime_ns if path.is_dir() else 0
+    except OSError:
+        return 0
+
+
+def _read_chapter_index(path: Path) -> Any:
+    try:
+        return read_json(path, None)
+    except AppError:
+        return None
 
 
 def _chapter_sort_key(path: Path) -> tuple[int, int | str, str]:
@@ -264,6 +345,52 @@ def split_chapter(text: str) -> tuple[str, str]:
 
 def write_translation(novel: str, filename: str, title: str, body: str) -> Path:
     target = translated_path(novel, filename)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(f"{title}\n\n{body}\n", encoding="utf-8")
+    with _chapter_index_lock:
+        previous_translated_mtime = _directory_mtime_ns(target.parent)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{title}\n\n{body}\n", encoding="utf-8")
+        _update_chapter_index_translation(
+            novel, filename, title, target, previous_translated_mtime
+        )
     return target
+
+
+def _update_chapter_index_translation(
+    novel: str,
+    filename: str,
+    title: str,
+    target: Path,
+    previous_translated_mtime: int,
+) -> None:
+    index_path = chapter_index_path(novel)
+    index = _read_chapter_index(index_path)
+    if not isinstance(index, dict) or index.get("version") != CHAPTER_INDEX_VERSION:
+        return
+    source_dir = settings.OUTPUT_ROOT / novel / "source"
+    if index.get("source_mtime_ns") != _directory_mtime_ns(source_dir):
+        return
+    if index.get("translated_mtime_ns") != previous_translated_mtime:
+        return
+    chapters = index.get("chapters")
+    if not isinstance(chapters, list):
+        return
+    chapter = next(
+        (
+            item
+            for item in chapters
+            if isinstance(item, dict) and item.get("filename") == filename
+        ),
+        None,
+    )
+    if chapter is None:
+        return
+    prefix = Path(filename).stem.split("_", 1)[0]
+    chapter.update(
+        {
+            "title": f"{prefix} {title}" if prefix and not title.startswith(prefix) else title,
+            "translated": True,
+            "translated_size": target.stat().st_size,
+        }
+    )
+    index["translated_mtime_ns"] = _directory_mtime_ns(target.parent)
+    write_json(index_path, index)

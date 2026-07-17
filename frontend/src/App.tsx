@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import type {
@@ -50,6 +50,8 @@ export function App() {
   const [error, setError] = useState(false);
   const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+  const bookLoadId = useRef(0);
+  const chapterLoadId = useRef(0);
   const showStatus = useCallback((message: string, isError = false) => {
     setStatus(message);
     setError(isError);
@@ -90,6 +92,8 @@ export function App() {
   const busy = manualBusy || bulkRunning;
 
   const clearSelectedBook = useCallback(() => {
+    bookLoadId.current += 1;
+    chapterLoadId.current += 1;
     setNovel("");
     setNovelMetadata(null);
     setChapters([]);
@@ -154,16 +158,9 @@ export function App() {
     }
     return map;
   }, [bulkItems]);
-  const loadGlossary = useCallback(async (nextNovel: string) => {
-    if (!nextNovel) {
-      setGlossary([]);
-      return;
-    }
-    setGlossary(await api.glossary(nextNovel));
-  }, []);
-
   const selectChapter = useCallback(
     async (nextNovel: string, filename: string) => {
+      const loadId = ++chapterLoadId.current;
       setSelectedFile(filename);
       setLoadedFile("");
       setSource("");
@@ -174,6 +171,7 @@ export function App() {
         scrollTop: progress?.chapter === filename ? progress.scrollTop : 0,
       });
       const chapter = await api.chapter(nextNovel, filename);
+      if (chapterLoadId.current !== loadId) return;
       setSource(chapter.source);
       setTranslated(chapter.translated);
       setLoadedFile(filename);
@@ -184,6 +182,9 @@ export function App() {
 
   const loadChapters = useCallback(
     async (nextNovel: string) => {
+      const loadId = ++bookLoadId.current;
+      chapterLoadId.current += 1;
+      const isCurrent = () => bookLoadId.current === loadId;
       setNovel(nextNovel);
       if (nextNovel) {
         localStorage.setItem(SELECTED_NOVEL_STORAGE_KEY, nextNovel);
@@ -192,30 +193,47 @@ export function App() {
       setLoadedFile("");
       setSource("");
       setTranslated("");
+      setChapters([]);
       setNovelMetadata(null);
       setChapterSearch("");
       setBulkSelection(new Set());
-      await loadGlossary(nextNovel);
-      await loadBulkState(nextNovel);
       if (!nextNovel) {
-        setChapters([]);
+        setGlossary([]);
+        await loadBulkState(nextNovel, isCurrent);
         return [];
       }
-      const nextChapters = await api.chapters(nextNovel);
+
+      api.glossary(nextNovel)
+        .then((nextGlossary) => {
+          if (isCurrent()) setGlossary(nextGlossary);
+        })
+        .catch((caught) => {
+          if (isCurrent()) showStatus(errorMessage(caught), true);
+        });
+      loadBulkState(nextNovel, isCurrent)
+        .catch((caught) => {
+          if (isCurrent()) showStatus(errorMessage(caught), true);
+        });
       loadLibraryMetadata(nextNovel)
-        .then(setNovelMetadata)
-        .catch(() => setNovelMetadata(null));
+        .then((metadata) => {
+          if (isCurrent()) setNovelMetadata(metadata);
+        })
+        .catch(() => {
+          if (isCurrent()) setNovelMetadata(null);
+        });
+
+      const nextChapters = await api.chapters(nextNovel);
+      if (!isCurrent()) return [];
       setChapters(nextChapters);
       return nextChapters;
     },
-    [loadBulkState, loadGlossary, loadLibraryMetadata]
+    [loadBulkState, loadLibraryMetadata, showStatus]
   );
 
   const chooseNovel = useCallback(
     async (nextNovel: string) => {
-      const nextChapters = await loadChapters(nextNovel);
-      const initialChapter = preferredChapter(nextNovel, nextChapters);
-      navigate(translatePath(nextNovel, initialChapter?.filename));
+      navigate(translatePath(nextNovel));
+      await loadChapters(nextNovel);
     },
     [loadChapters, navigate]
   );

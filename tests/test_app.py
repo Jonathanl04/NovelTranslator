@@ -372,6 +372,62 @@ class TranslatorAppTests(unittest.TestCase):
                 ["099_Chapter.txt", "100_Chapter.txt", "1000_Chapter.txt"],
             )
 
+    def test_list_chapters_reuses_persisted_chapter_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            source_dir = output / "Book" / "source"
+            translated_dir = translated / "Book" / "translated"
+            source_dir.mkdir(parents=True)
+            translated_dir.mkdir(parents=True)
+            (source_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
+            (translated_dir / "001_Source.txt").write_text("Chapter 1\n\nBody", encoding="utf-8")
+
+            expected = app.list_chapters("Book", output, translated)
+
+            self.assertTrue((output / "Book" / "chapter_index.json").is_file())
+            with patch(
+                "novel_translator.chapters.chapter_label",
+                side_effect=AssertionError("index was rebuilt"),
+            ):
+                self.assertEqual(app.list_chapters("Book", output, translated), expected)
+
+    def test_list_chapters_rebuilds_index_when_source_files_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            source_dir = output / "Book" / "source"
+            source_dir.mkdir(parents=True)
+            (source_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
+            app.list_chapters("Book", output)
+
+            (source_dir / "002_Source.txt").write_text("第2章\n\n正文", encoding="utf-8")
+
+            self.assertEqual(
+                [chapter["filename"] for chapter in app.list_chapters("Book", output)],
+                ["001_Source.txt", "002_Source.txt"],
+            )
+
+    def test_write_translation_updates_persisted_chapter_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            translated = root / "translated"
+            source_dir = output / "Book" / "source"
+            source_dir.mkdir(parents=True)
+            (source_dir / "001_Source.txt").write_text("第1章\n\n正文", encoding="utf-8")
+
+            with patch.object(settings, "OUTPUT_ROOT", output), patch.object(
+                settings, "TRANSLATED_ROOT", translated
+            ):
+                self.assertFalse(app.list_chapters("Book")[0]["translated"])
+                app.write_translation("Book", "001_Source.txt", "Chapter 1", "Body")
+                chapter = app.list_chapters("Book")[0]
+
+            self.assertTrue(chapter["translated"])
+            self.assertEqual(chapter["title"], "001 Chapter 1")
+            self.assertGreater(chapter["translated_size"], 0)
+
     def test_novel_metadata_includes_cover_url_when_cover_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "output"
@@ -1238,6 +1294,16 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("GlossaryPage", app_source)
         self.assertIn("Save Glossary", app_source)
         self.assertIn("Add Entry", app_source)
+
+    def test_loading_a_book_clears_stale_chapters_before_requesting_new_ones(self) -> None:
+        app_source = (
+            Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.tsx"
+        ).read_text(encoding="utf-8")
+        load_start = app_source.index("const loadChapters")
+        request_start = app_source.index("await api.chapters(nextNovel)", load_start)
+        loading_setup = app_source[load_start:request_start]
+
+        self.assertIn("setChapters([]);", loading_setup)
 
     def test_epub_export_ui_is_rendered(self) -> None:
         app_source = frontend_source()

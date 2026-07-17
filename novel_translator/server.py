@@ -16,7 +16,15 @@ from scraper.download_uukanshu import download_range as download_uukanshu_range
 
 from . import settings
 from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
-from .chapters import cover_path, delete_novel, list_chapters, list_novels, novel_metadata, read_chapter
+from .chapters import (
+    cover_path,
+    delete_novel,
+    list_chapters,
+    list_novels,
+    novel_metadata,
+    read_chapter,
+    rebuild_chapter_manifest,
+)
 from .config import load_config, mask_key, public_config, save_config
 from .codex_backend import (
     close_codex,
@@ -332,6 +340,7 @@ class Handler(BaseHTTPRequestHandler):
         def worker() -> None:
             try:
                 result = downloader(url, start, end, settings.OUTPUT_ROOT, update_progress)
+                rebuild_chapter_manifest(result["novel"])
                 with scrape_lock:
                     scrape_state.update(
                         {

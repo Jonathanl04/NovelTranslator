@@ -52,8 +52,9 @@ export function useBulkTranslation({
     setSelection(selectionFor(state.items));
   }, []);
 
-  const load = useCallback(async (nextNovel: string) => {
+  const load = useCallback(async (nextNovel: string, isCurrent: () => boolean = () => true) => {
     if (!nextNovel) {
+      if (!isCurrent()) return;
       previous.current = null;
       setItems([]);
       setRunning(false);
@@ -62,6 +63,7 @@ export function useBulkTranslation({
       return;
     }
     const state = await api.bulkTranslation(nextNovel);
+    if (!isCurrent()) return;
     applyState(state);
     if (state.aborted) onStatus("Bulk translation aborted.");
     else if (state.running) onStatus(progress(state));
