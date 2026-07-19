@@ -447,6 +447,40 @@ class TranslatorAppTests(unittest.TestCase):
             self.assertEqual(metadata["cover_url"], "/api/cover?novel=Book%20One")
             self.assertEqual(metadata["source_url"], "https://uukanshu.cc/book/26855/")
 
+    def test_library_metadata_returns_all_books_in_one_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            for name in ("Book One", "Book Two"):
+                source = output / name / "source"
+                source.mkdir(parents=True)
+                (source / "001_Chapter.txt").write_text("Chapter\n\nBody", encoding="utf-8")
+            (output / "Book Two" / "source" / "cover.jpg").write_bytes(b"cover")
+
+            library = app.library_metadata(output)
+
+            self.assertEqual(library["novels"], ["Book One", "Book Two"])
+            self.assertEqual(set(library["metadata"]), {"Book One", "Book Two"})
+            self.assertEqual(library["metadata"]["Book One"]["translated_name"], "Book One")
+            self.assertIsNone(library["metadata"]["Book One"]["cover_url"])
+            self.assertEqual(
+                library["metadata"]["Book Two"]["cover_url"],
+                "/api/cover?novel=Book%20Two",
+            )
+
+    def test_library_uses_batch_metadata_with_retries(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        api_source = (root / "frontend" / "src" / "api.ts").read_text(encoding="utf-8")
+        library_source = (root / "frontend" / "src" / "hooks" / "useLibrary.ts").read_text(
+            encoding="utf-8"
+        )
+        server_source = (root / "novel_translator" / "server.py").read_text(encoding="utf-8")
+
+        self.assertIn("/api/novels/metadata", api_source)
+        self.assertIn("requestWithRetry<LibraryMetadata>", api_source)
+        self.assertIn("api.libraryMetadata()", library_source)
+        self.assertNotIn("nextNovels.map(async", library_source)
+        self.assertIn('parsed.path == "/api/novels/metadata"', server_source)
+
     def test_list_novels_queues_new_source_language_name_without_renaming_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

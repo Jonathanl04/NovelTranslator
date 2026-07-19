@@ -92,6 +92,11 @@ export type NovelMetadata = {
   updated_at: number;
 };
 
+export type LibraryMetadata = {
+  novels: string[];
+  metadata: Record<string, NovelMetadata>;
+};
+
 export type ChapterDetail = {
   filename: string;
   source: string;

@@ -8,6 +8,7 @@ import type {
   CodexRemainingUsage,
   Config,
   GlossaryEntry,
+  LibraryMetadata,
   NovelMetadata,
   OpenRouterProvider,
   QidianAuthState,
@@ -27,6 +28,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(data.error || `Request failed: HTTP ${response.status}`);
   }
   return data as T;
+}
+
+async function requestWithRetry<T>(path: string, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await request<T>(path);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 300 * 2 ** attempt));
+      }
+    }
+  }
+  throw lastError;
 }
 
 function parseJsonResponse(text: string): any {
@@ -67,6 +83,7 @@ export const api = {
   codexRemainingUsage: (refresh = false) =>
     request<CodexRemainingUsage>(`/api/codex/usage?refresh=${refresh}`),
   novels: () => request<string[]>("/api/novels"),
+  libraryMetadata: () => requestWithRetry<LibraryMetadata>("/api/novels/metadata"),
   novel: (novel: string) =>
     request<NovelMetadata>(`/api/novel?novel=${encodeURIComponent(novel)}`),
   deleteNovel: (novel: string) =>

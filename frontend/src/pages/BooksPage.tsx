@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownAZ,
   BookOpen,
@@ -330,11 +330,9 @@ function BookCard({
       <button type="button" className="grid min-w-0 gap-2 text-left" onClick={onSelect}>
         <div className="aspect-[7/9] overflow-hidden rounded-md border bg-muted">
           {metadata?.cover_url ? (
-            <img src={metadata.cover_url} alt={`${displayName} cover`} className="h-full w-full object-cover" />
+            <BookCover url={metadata.cover_url} displayName={displayName} />
           ) : (
-            <div className="grid h-full place-items-center text-muted-foreground">
-              <BookOpen className="size-10" />
-            </div>
+            <CoverPlaceholder />
           )}
         </div>
         <div className="grid min-w-0 gap-1">
@@ -357,6 +355,51 @@ function BookCard({
           <Trash2 />
         </Button>
       </div>
+    </div>
+  );
+}
+
+function BookCover({ url, displayName }: { url: string; displayName: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const [waiting, setWaiting] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const retryTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    setAttempt(0);
+    setWaiting(false);
+    setFailed(false);
+    return () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    };
+  }, [url]);
+
+  if (waiting || failed) return <CoverPlaceholder />;
+  const src = attempt > 0 ? `${url}${url.includes("?") ? "&" : "?"}retry=${attempt}` : url;
+  return (
+    <img
+      src={src}
+      alt={`${displayName} cover`}
+      className="h-full w-full object-cover"
+      onError={() => {
+        if (attempt >= 2) {
+          setFailed(true);
+          return;
+        }
+        setWaiting(true);
+        retryTimer.current = window.setTimeout(() => {
+          setAttempt((current) => current + 1);
+          setWaiting(false);
+        }, 500 * 2 ** attempt);
+      }}
+    />
+  );
+}
+
+function CoverPlaceholder() {
+  return (
+    <div className="grid h-full place-items-center text-muted-foreground">
+      <BookOpen className="size-10" />
     </div>
   );
 }

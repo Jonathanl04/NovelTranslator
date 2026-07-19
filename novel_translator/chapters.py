@@ -177,6 +177,16 @@ def novel_metadata(novel: str, output_root: Path | None = None) -> dict[str, Any
     }
 
 
+def library_metadata(output_root: Path | None = None) -> dict[str, Any]:
+    """Return the complete library in one response for remote clients."""
+    output_root = output_root or settings.OUTPUT_ROOT
+    novels = list_novels(output_root)
+    return {
+        "novels": novels,
+        "metadata": {novel: novel_metadata(novel, output_root) for novel in novels},
+    }
+
+
 def source_path(novel: str, filename: str, output_root: Path | None = None) -> Path:
     output_root = output_root or settings.OUTPUT_ROOT
     novel = safe_segment(novel, "novel")

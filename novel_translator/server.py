@@ -19,6 +19,7 @@ from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_t
 from .chapters import (
     cover_path,
     delete_novel,
+    library_metadata,
     list_chapters,
     list_novels,
     novel_metadata,
@@ -110,6 +111,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and parsed.path == "/api/novels":
                 self.json(list_novels())
+                return
+            if method == "GET" and parsed.path == "/api/novels/metadata":
+                self.json(library_metadata())
                 return
             if parsed.path == "/api/novel":
                 query = urllib.parse.parse_qs(parsed.query)

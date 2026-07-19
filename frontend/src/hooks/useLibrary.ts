@@ -5,6 +5,7 @@ import type { NovelMetadata, QidianAuthState, ScrapeState } from "@/types";
 import { clearReadingProgress } from "@/appUtils";
 
 const BOOKS_PER_PAGE = 12;
+const SOURCE_LANGUAGE_TITLE_RE = /[\u3400-\u9fff\uac00-\ud7af]/u;
 
 const emptyScrapeState: ScrapeState = {
   running: false,
@@ -54,26 +55,56 @@ export function useLibrary({ navigate, selectedNovel, onStatus, onDeleteSelected
 
   useEffect(() => {
     let active = true;
-    Promise.all([api.novels(), api.scrapeState(), api.qidianAuth()])
-      .then(([nextNovels, nextScrapeState, nextQidianAuth]) => {
+    Promise.all([api.libraryMetadata(), api.scrapeState(), api.qidianAuth()])
+      .then(([library, nextScrapeState, nextQidianAuth]) => {
         if (!active) return;
-        setNovels(nextNovels);
+        setNovels(library.novels);
+        setMetadataByName(library.metadata);
         setScrapeState(nextScrapeState);
         setQidianAuth(nextQidianAuth);
-        return Promise.all(nextNovels.map(async (name) => {
-          try { return [name, await api.novel(name)] as const; }
-          catch { return null; }
-        }));
-      })
-      .then((entries) => {
-        if (!active || !entries) return;
-        setMetadataByName(Object.fromEntries(
-          entries.filter((entry): entry is [string, NovelMetadata] => entry !== null)
-        ));
       })
       .catch((error) => onStatus(errorMessage(error), true));
     return () => { active = false; };
   }, [onStatus]);
+
+  const pendingTitleSignature = Object.values(metadataByName)
+    .filter((metadata) =>
+      metadata.translated_name === metadata.name && SOURCE_LANGUAGE_TITLE_RE.test(metadata.name)
+    )
+    .map((metadata) => metadata.name)
+    .sort()
+    .join("|");
+
+  // Title translations are queued by the metadata endpoint. Poll only while a
+  // source-language title is unresolved, with a cap to avoid retrying forever.
+  useEffect(() => {
+    if (!pendingTitleSignature) return;
+    let active = true;
+    let attempts = 0;
+    let timer: number | null = null;
+    const refresh = () => {
+      timer = window.setTimeout(() => {
+        attempts += 1;
+        api.libraryMetadata()
+          .then((library) => {
+            if (!active) return;
+            setNovels(library.novels);
+            setMetadataByName(library.metadata);
+            if (attempts < 30) refresh();
+          })
+          .catch((error) => {
+            if (!active) return;
+            if (attempts < 30) refresh();
+            else onStatus(errorMessage(error), true);
+          });
+      }, 2_000);
+    };
+    refresh();
+    return () => {
+      active = false;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [onStatus, pendingTitleSignature]);
 
   useEffect(() => {
     if (!scrapeState.running) return;
@@ -93,9 +124,10 @@ export function useLibrary({ navigate, selectedNovel, onStatus, onDeleteSelected
     const key = `${result.novel}:${result.chapter_count}:${result.files.join("|")}`;
     if (handledScrapeResult.current === key) return;
     handledScrapeResult.current = key;
-    Promise.all([api.novels(), loadMetadata(result.novel)])
-      .then(([nextNovels]) => {
-        setNovels(nextNovels);
+    Promise.all([api.libraryMetadata(), loadMetadata(result.novel)])
+      .then(([library]) => {
+        setNovels(library.novels);
+        setMetadataByName(library.metadata);
         setQuery("");
         onStatus(`Downloaded ${result.chapter_count} ${result.chapter_count === 1 ? "chapter" : "chapters"} for ${result.novel}.`);
       })
