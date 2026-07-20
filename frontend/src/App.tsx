@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import type {
@@ -52,6 +52,20 @@ export function App() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
   const bookLoadId = useRef(0);
   const chapterLoadId = useRef(0);
+
+  useLayoutEffect(() => {
+    if (page === "workspace" && routeChapter) return;
+    window.scrollTo(0, 0);
+  }, [location.key, page, routeChapter]);
+
+  useEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration;
+    };
+  }, []);
+
   const showStatus = useCallback((message: string, isError = false) => {
     setStatus(message);
     setError(isError);
