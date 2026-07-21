@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threading import Lock, Thread
+from threading import Event, Lock, Thread, current_thread
 from typing import Any
 
 from . import settings
@@ -18,6 +18,7 @@ BULK_TRANSLATION_ABORTED_MESSAGE = "Bulk translation aborted."
 
 _bulk_lock = Lock()
 _bulk_workers: dict[str, Thread] = {}
+_bulk_abort_events: dict[str, Event] = {}
 
 
 def bulk_state_path(novel: str):
@@ -160,6 +161,9 @@ def abort_bulk_translation(novel: str) -> dict[str, Any]:
     if not safe_novel:
         return empty_bulk_state("")
     with _bulk_lock:
+        abort_event = _bulk_abort_events.get(safe_novel)
+        if abort_event is not None:
+            abort_event.set()
         state = load_bulk_state(safe_novel)
         state["running"] = False
         state["aborted"] = True
@@ -200,22 +204,29 @@ def _should_resume(state: dict[str, Any], novel: str) -> bool:
 
 def _is_worker_alive(novel: str) -> bool:
     worker = _bulk_workers.get(novel)
-    return bool(worker and worker.is_alive())
+    abort_event = _bulk_abort_events.get(novel)
+    return bool(worker and worker.is_alive() and abort_event and not abort_event.is_set())
 
 
 def _start_worker(novel: str) -> None:
-    worker = Thread(target=_process_bulk_translation_queue, args=(novel,), daemon=True)
+    abort_event = Event()
+    worker = Thread(
+        target=_process_bulk_translation_queue,
+        args=(novel, abort_event),
+        daemon=True,
+    )
     _bulk_workers[novel] = worker
+    _bulk_abort_events[novel] = abort_event
     worker.start()
 
 
-def _process_bulk_translation_queue(novel: str) -> None:
+def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:
     pending_existing_glossary_updates: list[dict[str, Any]] = []
     try:
         while True:
             with _bulk_lock:
                 state = load_bulk_state(novel)
-                if state.get("aborted", False):
+                if abort_event.is_set() or state.get("aborted", False):
                     state["running"] = False
                     save_bulk_state(novel, state)
                     return
@@ -224,8 +235,6 @@ def _process_bulk_translation_queue(novel: str) -> None:
                     None,
                 )
                 if current is None:
-                    state["running"] = False
-                    save_bulk_state(novel, state)
                     break
                 for item in state["items"]:
                     if item["filename"] == current["filename"]:
@@ -241,7 +250,7 @@ def _process_bulk_translation_queue(novel: str) -> None:
 
             try:
                 if current["mode"] == "name":
-                    ensure_translated_novel_name(novel, should_abort=lambda: is_bulk_translation_aborted(novel))
+                    ensure_translated_novel_name(novel, should_abort=abort_event.is_set)
                     if needs_translated_novel_name(novel):
                         raise AppError("Translation backend did not return a translated title.")
                 else:
@@ -249,7 +258,7 @@ def _process_bulk_translation_queue(novel: str) -> None:
                         novel,
                         current["filename"],
                         populate_glossary=current["mode"] == "full",
-                        should_abort=lambda: is_bulk_translation_aborted(novel),
+                        should_abort=abort_event.is_set,
                         defer_existing_glossary_updates=current["mode"] == "full",
                         deferred_existing_glossary_updates=(
                             pending_existing_glossary_updates if current["mode"] == "full" else None
@@ -257,6 +266,8 @@ def _process_bulk_translation_queue(novel: str) -> None:
                     )
             except Exception as exc:
                 with _bulk_lock:
+                    if _bulk_abort_events.get(novel) is not abort_event:
+                        return
                     state = load_bulk_state(novel)
                     for item in state["items"]:
                         if item["filename"] == current["filename"]:
@@ -267,12 +278,13 @@ def _process_bulk_translation_queue(novel: str) -> None:
                                 item["status"] = "failed"
                                 item["message"] = str(exc)
                             break
-                    state["running"] = False
                     state["aborted"] = True
                     save_bulk_state(novel, state)
                 return
 
             with _bulk_lock:
+                if _bulk_abort_events.get(novel) is not abort_event:
+                    return
                 state = load_bulk_state(novel)
                 for item in state["items"]:
                     if item["filename"] == current["filename"]:
@@ -281,11 +293,13 @@ def _process_bulk_translation_queue(novel: str) -> None:
                         break
                 save_bulk_state(novel, state)
     finally:
-        if pending_existing_glossary_updates:
-            with _bulk_lock:
+        with _bulk_lock:
+            if pending_existing_glossary_updates:
                 merged = merge_glossary_entries(load_glossary(novel), pending_existing_glossary_updates)
                 write_json(glossary_path(novel), merged)
-        with _bulk_lock:
-            worker = _bulk_workers.get(novel)
-            if worker is not None and worker is _bulk_workers.get(novel):
+            if _bulk_workers.get(novel) is current_thread():
+                state = load_bulk_state(novel)
+                state["running"] = False
+                save_bulk_state(novel, state)
                 _bulk_workers.pop(novel, None)
+                _bulk_abort_events.pop(novel, None)

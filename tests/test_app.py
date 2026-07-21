@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
@@ -1774,6 +1775,56 @@ class TranslatorAppTests(unittest.TestCase):
                 time.sleep(0.1)
 
             self.assertEqual(seen, [("Book One", "001.txt", True, True, True)])
+
+    def test_new_bulk_translation_can_start_while_aborted_worker_unwinds(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first_started = threading.Event()
+            release_first = threading.Event()
+
+            def fake_translate(
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+                **kwargs,
+            ) -> dict[str, str]:
+                if filename == "001.txt":
+                    first_started.set()
+                    self.assertTrue(release_first.wait(2))
+                    self.assertTrue(should_abort())
+                    raise app.AppError("Bulk translation aborted.", 409)
+                return {"filename": filename}
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ):
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [{"filename": "001.txt", "title": "Chapter 1", "status": "pending"}],
+                )
+                self.assertTrue(first_started.wait(2))
+
+                aborted = bulk_translate.abort_bulk_translation("Book One")
+                self.assertFalse(aborted["running"])
+                bulk_translate.start_bulk_translation(
+                    "Book One",
+                    [{"filename": "002.txt", "title": "Chapter 2", "status": "pending"}],
+                )
+                release_first.set()
+
+                deadline = time.time() + 2
+                state = bulk_translate.get_bulk_state("Book One")
+                while state["running"] and time.time() < deadline:
+                    time.sleep(0.02)
+                    state = bulk_translate.get_bulk_state("Book One")
+
+                self.assertFalse(state["running"])
+                self.assertFalse(state["aborted"])
+                self.assertEqual([item["filename"] for item in state["items"]], ["002.txt"])
+                self.assertEqual([item["status"] for item in state["items"]], ["done"])
 
     def test_novel_glossary_does_not_fall_back_to_global_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
