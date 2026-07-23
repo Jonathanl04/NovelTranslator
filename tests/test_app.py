@@ -1446,6 +1446,8 @@ class TranslatorAppTests(unittest.TestCase):
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
                 bulk_translate, "translate_chapter", fake_translate
+            ), patch.object(
+                bulk_translate, "load_config", return_value={"glossary_strategy": "full"}
             ):
                 bulk_translate.start_bulk_translation(
                     "Book One",
@@ -1504,6 +1506,8 @@ class TranslatorAppTests(unittest.TestCase):
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
                 bulk_translate, "translate_chapter", fake_translate
+            ), patch.object(
+                bulk_translate, "load_config", return_value={"glossary_strategy": "full"}
             ):
                 bulk_translate.start_bulk_translation(
                     "Book One",
@@ -1754,6 +1758,8 @@ class TranslatorAppTests(unittest.TestCase):
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
                 bulk_translate, "translate_chapter", fake_translate
+            ), patch.object(
+                bulk_translate, "load_config", return_value={"glossary_strategy": "full"}
             ):
                 bulk_translate.start_bulk_translation(
                     "Book One",
@@ -1803,6 +1809,8 @@ class TranslatorAppTests(unittest.TestCase):
 
             with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
                 bulk_translate, "translate_chapter", fake_translate
+            ), patch.object(
+                bulk_translate, "load_config", return_value={"glossary_strategy": "full"}
             ):
                 bulk_translate.start_bulk_translation(
                     "Book One",

@@ -9,6 +9,7 @@ from .config import load_config, safe_file_stem
 from .errors import AppError
 from .glossary import glossary_path, load_glossary, merge_glossary_entries
 from .glossary_strategy import (
+    ROLLING_GLOSSARY_REFRESH_INTERVAL,
     finish_rolling_glossary_chapter,
     normalize_rolling_glossary_state,
     prepare_rolling_glossary_prompt,
@@ -37,6 +38,16 @@ def empty_bulk_state(novel: str) -> dict[str, Any]:
 
 def public_bulk_state(state: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in state.items() if key != "rolling_glossary"}
+
+
+def flush_pending_glossary_updates(
+    novel: str, pending_updates: list[dict[str, Any]]
+) -> None:
+    if not pending_updates:
+        return
+    merged = merge_glossary_entries(load_glossary(novel), pending_updates)
+    write_json(glossary_path(novel), merged)
+    pending_updates.clear()
 
 
 def normalize_bulk_item(item: dict[str, Any]) -> dict[str, str]:
@@ -274,6 +285,17 @@ def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:
                     current["mode"] == "full"
                     and load_config().get("glossary_strategy", "full") == "rolling"
                 ):
+                    saved_rolling_state = normalize_rolling_glossary_state(
+                        state.get("rolling_glossary")
+                    )
+                    if (
+                        saved_rolling_state is not None
+                        and saved_rolling_state["processed"]
+                        >= ROLLING_GLOSSARY_REFRESH_INTERVAL
+                    ):
+                        flush_pending_glossary_updates(
+                            novel, pending_existing_glossary_updates
+                        )
                     glossary_before = load_glossary(novel)
                     chapter_text = source_path(novel, current["filename"]).read_text(
                         encoding="utf-8"
@@ -351,9 +373,7 @@ def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:
                 save_bulk_state(novel, state)
     finally:
         with _bulk_lock:
-            if pending_existing_glossary_updates:
-                merged = merge_glossary_entries(load_glossary(novel), pending_existing_glossary_updates)
-                write_json(glossary_path(novel), merged)
+            flush_pending_glossary_updates(novel, pending_existing_glossary_updates)
             if _bulk_workers.get(novel) is current_thread():
                 state = load_bulk_state(novel)
                 state["running"] = False

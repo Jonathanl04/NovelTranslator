@@ -76,7 +76,7 @@ Glossary entries contain a source term, its established English rendering, a cat
 Settings provides two glossary context strategies:
 
 - **Full glossary** sends every established entry to glossary extraction.
-- **Recent 100 chapters** freezes terms found in the previous 100 chapters during bulk translation, rebuilds the snapshot every 50 translated chapters, and appends newly created or returning exact-match terms. This limits context growth while preserving a stable prompt prefix between refreshes.
+- **Recent 100 chapters** freezes terms found in the previous 100 chapters during bulk translation, rebuilds the snapshot every 50 translated chapters, and appends newly created or returning exact-match terms. Banked updates to existing entries are saved at each refresh. This limits context growth while preserving a stable prompt prefix between refreshes.
 
 Single-chapter translation in recent mode uses the previous 100 chapters plus exact glossary matches from the selected chapter.
 

@@ -389,8 +389,8 @@ export function SettingsPage({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Recent mode freezes terms seen in the previous 100 chapters, rebuilds every 50
-              translated chapters, and appends exact returning terms at the end.
+              Recent mode freezes terms seen in the previous 100 chapters, applies banked updates
+              and rebuilds every 50 translated chapters, and appends exact returning terms.
             </p>
           </section>
           {config.added_models.length > 0 ? (

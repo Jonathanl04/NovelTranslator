@@ -1,10 +1,15 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from novel_translator import settings
-from novel_translator.bulk_translate import load_bulk_state, save_bulk_state
+from novel_translator.bulk_translate import (
+    flush_pending_glossary_updates,
+    load_bulk_state,
+    save_bulk_state,
+)
 from novel_translator.glossary_strategy import (
     entries_in_chapter_order,
     finish_rolling_glossary_chapter,
@@ -156,6 +161,44 @@ class GlossaryStrategyTests(unittest.TestCase):
         self.assertEqual(
             loaded["rolling_glossary"]["additions"][0]["source_term"], "新增"
         )
+
+    def test_flush_pending_updates_fills_blank_fields_and_clears_bank(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            settings, "GLOSSARY_ROOT", Path(tmp)
+        ):
+            glossary = Path(tmp) / "Book" / "glossary" / "glossary.json"
+            glossary.parent.mkdir(parents=True)
+            glossary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "source_term": "徐邢",
+                            "english_term": "Xu Xing",
+                            "category": "",
+                            "gender_or_pronoun": "",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            pending = [
+                {
+                    "source_term": "徐邢",
+                    "english_term": "Different Name",
+                    "category": "character",
+                    "gender_or_pronoun": "male",
+                }
+            ]
+
+            flush_pending_glossary_updates("Book", pending)
+
+            saved = json.loads(glossary.read_text(encoding="utf-8"))
+
+        self.assertEqual(pending, [])
+        self.assertEqual(saved[0]["english_term"], "Xu Xing")
+        self.assertEqual(saved[0]["category"], "character")
+        self.assertEqual(saved[0]["gender_or_pronoun"], "male")
 
 
 if __name__ == "__main__":
