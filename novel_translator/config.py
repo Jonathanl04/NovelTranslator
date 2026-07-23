@@ -42,6 +42,7 @@ def load_config() -> dict[str, Any]:
         "glossary_reasoning_effort": reasoning_effort_for_config(
             config, "glossary_reasoning_effort"
         ),
+        "codex_fast_mode": config.get("codex_fast_mode") is True,
         "codex_translation_model": str(config.get("codex_translation_model", "")).strip(),
         "codex_glossary_model": str(config.get("codex_glossary_model", "")).strip(),
         "translation_model": translation_model,
@@ -94,6 +95,9 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
     glossary_reasoning_effort = selected_reasoning_effort(
         config, "glossary_reasoning_effort", current
     )
+    codex_fast_mode = config.get("codex_fast_mode", current["codex_fast_mode"])
+    if not isinstance(codex_fast_mode, bool):
+        raise AppError("codex_fast_mode must be true or false.")
     glossary_strategy = selected_glossary_strategy(config, current)
     codex_translation_model = str(
         config.get("codex_translation_model", current["codex_translation_model"])
@@ -111,6 +115,7 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
         "glossary_backend": glossary_backend,
         "translation_reasoning_effort": translation_reasoning_effort,
         "glossary_reasoning_effort": glossary_reasoning_effort,
+        "codex_fast_mode": codex_fast_mode,
         "codex_translation_model": codex_translation_model,
         "codex_glossary_model": codex_glossary_model,
         "translation_model": translation_model,
@@ -135,6 +140,7 @@ def public_config() -> dict[str, Any]:
         "glossary_backend": config["glossary_backend"],
         "translation_reasoning_effort": config["translation_reasoning_effort"],
         "glossary_reasoning_effort": config["glossary_reasoning_effort"],
+        "codex_fast_mode": config["codex_fast_mode"],
         "codex_translation_model": config["codex_translation_model"],
         "codex_glossary_model": config["codex_glossary_model"],
         "translation_model": config["translation_model"],

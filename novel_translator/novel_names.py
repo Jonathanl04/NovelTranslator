@@ -70,6 +70,7 @@ def ensure_translated_novel_name(
             messages,
             NOVEL_NAME_SCHEMA,
             reasoning_effort=config["translation_reasoning_effort"],
+            fast_mode=config["codex_fast_mode"],
         )
     elif call_api is call_openrouter:
         response = call_api(

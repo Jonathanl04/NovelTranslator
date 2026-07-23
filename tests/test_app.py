@@ -34,17 +34,20 @@ class TranslatorAppTests(unittest.TestCase):
                 self.assertEqual(loaded["translation_backend"], "openrouter")
                 self.assertEqual(loaded["glossary_backend"], "openrouter")
                 self.assertEqual(loaded["glossary_strategy"], "full")
+                self.assertFalse(loaded["codex_fast_mode"])
 
                 saved = app.save_config(
                     {
                         "translation_backend": "codex",
                         "glossary_backend": "openrouter",
                         "codex_translation_model": "gpt-test",
+                        "codex_fast_mode": True,
                     }
                 )
 
             self.assertEqual(saved["translation_backend"], "codex")
             self.assertEqual(saved["codex_translation_model"], "gpt-test")
+            self.assertTrue(saved["codex_fast_mode"])
             self.assertEqual(saved["openrouter_api_key"], "legacy")
 
     def test_configured_api_call_routes_codex_without_openrouter_fallback(self) -> None:
@@ -61,6 +64,7 @@ class TranslatorAppTests(unittest.TestCase):
                 {"type": "object"},
                 "cache-key",
                 "low",
+                True,
             )
 
         self.assertIs(result, expected)
@@ -70,6 +74,7 @@ class TranslatorAppTests(unittest.TestCase):
             {"type": "object"},
             "cache-key",
             "low",
+            True,
         )
 
     def test_codex_cache_key_is_stable_per_book_and_workload(self) -> None:
@@ -169,6 +174,7 @@ class TranslatorAppTests(unittest.TestCase):
                 output_schema,
                 cache_key="",
                 reasoning_effort="none",
+                fast_mode=False,
             ):
                 seen["client"] = client
                 seen["model"] = selected_model
@@ -176,6 +182,7 @@ class TranslatorAppTests(unittest.TestCase):
                 seen["output_schema"] = output_schema
                 seen["cache_key"] = cache_key
                 seen["reasoning_effort"] = reasoning_effort
+                seen["fast_mode"] = fast_mode
                 return {
                     "choices": [{"message": {"content": '{"translated_name":"Test"}'}}],
                     "usage": {
@@ -196,6 +203,7 @@ class TranslatorAppTests(unittest.TestCase):
             [{"role": "user", "content": "Translate this"}],
             {"type": "object"},
             "cache-key",
+            fast_mode=True,
         )
 
         self.assertIs(seen["client"], service._codex)
@@ -204,6 +212,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(seen["output_schema"], {"type": "object"})
         self.assertEqual(seen["cache_key"], "cache-key")
         self.assertEqual(seen["reasoning_effort"], "none")
+        self.assertTrue(seen["fast_mode"])
         self.assertEqual(response["usage"]["total_tokens"], 27)
 
     def test_direct_codex_payload_has_no_tools_and_uses_lowest_reasoning(self) -> None:
@@ -223,7 +232,13 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertFalse(payload["text"]["format"]["strict"])
         self.assertEqual(payload["text"]["format"]["schema"], schema)
         self.assertNotIn("tools", payload)
+        self.assertNotIn("service_tier", payload)
         self.assertEqual(payload["prompt_cache_key"], "cache-key")
+
+        fast_payload = direct_responses_payload(
+            "gpt-test", [], schema, fast_mode=True
+        )
+        self.assertEqual(fast_payload["service_tier"], "priority")
 
         for effort in ("low", "medium", "high"):
             reasoning_payload = direct_responses_payload(

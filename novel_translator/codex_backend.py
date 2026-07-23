@@ -15,26 +15,7 @@ from .usage import record_llm_usage
 
 CODEX_TIMEOUT_SECONDS = 300
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
-FIXED_CODEX_MODELS = (
-    {
-        "id": "gpt-5.6-luna",
-        "name": "GPT-5.6 Luna",
-        "description": "Fast GPT-5.6 Codex model.",
-        "is_default": False,
-    },
-    {
-        "id": "gpt-5.6-sol",
-        "name": "GPT-5.6 Sol",
-        "description": "Most capable GPT-5.6 Codex model.",
-        "is_default": False,
-    },
-    {
-        "id": "gpt-5.6-terra",
-        "name": "GPT-5.6 Terra",
-        "description": "Balanced GPT-5.6 Codex model.",
-        "is_default": False,
-    },
-)
+FIXED_CODEX_MODELS: tuple[dict[str, Any], ...] = ()
 
 
 class CodexResponsesAdapter:
@@ -53,11 +34,12 @@ class CodexResponsesAdapter:
         output_schema: dict[str, Any],
         cache_key: str = "",
         reasoning_effort: str = "none",
+        fast_mode: bool = False,
     ) -> dict[str, Any]:
         client.account(refresh_token=True)
         token, account_id = self._credentials()
         payload = direct_responses_payload(
-            model, messages, output_schema, cache_key, reasoning_effort
+            model, messages, output_schema, cache_key, reasoning_effort, fast_mode
         )
         headers = {
             "Authorization": f"Bearer {token}",
@@ -344,6 +326,7 @@ class CodexService:
         output_schema: dict[str, Any],
         cache_key: str = "",
         reasoning_effort: str = "none",
+        fast_mode: bool = False,
     ) -> dict[str, Any]:
         model = model.strip()
         if not model:
@@ -360,7 +343,13 @@ class CodexService:
 
         try:
             response = self._responses.call(
-                self._client(), model, messages, output_schema, cache_key, reasoning_effort
+                self._client(),
+                model,
+                messages,
+                output_schema,
+                cache_key,
+                reasoning_effort,
+                fast_mode,
             )
         except AppError:
             raise
@@ -381,6 +370,7 @@ def direct_responses_payload(
     output_schema: dict[str, Any],
     cache_key: str = "",
     reasoning_effort: str = "none",
+    fast_mode: bool = False,
 ) -> dict[str, Any]:
     if reasoning_effort not in {"none", "low", "medium", "high"}:
         raise AppError("Reasoning effort must be 'none', 'low', 'medium', or 'high'.")
@@ -438,6 +428,8 @@ def direct_responses_payload(
     }
     if cache_key:
         payload["prompt_cache_key"] = cache_key
+    if fast_mode:
+        payload["service_tier"] = "priority"
     return payload
 
 
@@ -536,8 +528,11 @@ def call_codex(
     output_schema: dict[str, Any],
     cache_key: str = "",
     reasoning_effort: str = "none",
+    fast_mode: bool = False,
 ) -> dict[str, Any]:
-    return _service.call(model, messages, output_schema, cache_key, reasoning_effort)
+    return _service.call(
+        model, messages, output_schema, cache_key, reasoning_effort, fast_mode
+    )
 
 
 def close_codex() -> None:

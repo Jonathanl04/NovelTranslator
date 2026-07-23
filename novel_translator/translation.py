@@ -49,12 +49,18 @@ def configured_api_call(
     output_schema: dict[str, Any] | None = None,
     codex_cache_key: str = "",
     reasoning_effort: str = "none",
+    codex_fast_mode: bool = False,
 ) -> dict[str, Any]:
     if call_api is call_openrouter and backend == "codex":
         if output_schema is None:
             raise AppError("Codex requests require an output schema.", 500)
         return call_codex(
-            codex_model, messages, output_schema, codex_cache_key, reasoning_effort
+            codex_model,
+            messages,
+            output_schema,
+            codex_cache_key,
+            reasoning_effort,
+            codex_fast_mode,
         )
     if provider and call_api is call_openrouter:
         return call_api(
@@ -157,6 +163,7 @@ def populate_glossary_for_chapter(
                 GLOSSARY_SCHEMA,
                 codex_cache_key(novel, "glossary"),
                 config["glossary_reasoning_effort"],
+                config["codex_fast_mode"],
             )
             try:
                 updates = parse_glossary_response(api_response)
@@ -246,6 +253,7 @@ def translate_chapter(
                     TRANSLATION_SCHEMA,
                     codex_cache_key(novel, "translation"),
                     config["translation_reasoning_effort"],
+                    config["codex_fast_mode"],
                 )
             except AppError as exc:
                 if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
@@ -285,6 +293,7 @@ def translate_chapter(
                 config["codex_translation_model"],
                 FRAGMENT_REPLACEMENTS_SCHEMA,
                 reasoning_effort=config["translation_reasoning_effort"],
+                codex_fast_mode=config["codex_fast_mode"],
             )
             if should_abort and should_abort():
                 raise AppError("Bulk translation aborted.", 409)
@@ -312,6 +321,7 @@ def translate_chapter(
                 config["codex_translation_model"],
                 TRANSLATION_SCHEMA,
                 reasoning_effort=config["translation_reasoning_effort"],
+                codex_fast_mode=config["codex_fast_mode"],
             )
             try:
                 parsed = parse_translation_response(repair_response)

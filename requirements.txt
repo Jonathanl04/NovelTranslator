@@ -1,5 +1,5 @@
 beautifulsoup4
 curl_cffi
-openai-codex==0.1.0b3
+openai-codex
 requests
 scrapling[fetchers]

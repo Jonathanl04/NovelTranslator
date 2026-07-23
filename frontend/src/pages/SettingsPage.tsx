@@ -205,6 +205,12 @@ export function SettingsPage({
     await onSaveConfig(patch);
   }
 
+  async function toggleCodexFastMode(enabled: boolean) {
+    const patch: Partial<Config> = { codex_fast_mode: enabled };
+    onConfigChange(patch);
+    await onSaveConfig(patch);
+  }
+
   async function selectGlossaryStrategy(strategy: GlossaryStrategy) {
     const patch: Partial<Config> = { glossary_strategy: strategy };
     onConfigChange(patch);
@@ -283,17 +289,34 @@ export function SettingsPage({
             <h3 className="text-sm font-semibold">Models</h3>
           </div>
           {codexAuth?.signed_in ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-xs">
-              <span className="text-muted-foreground">
-                {codexModels?.models.length ?? 0} Codex models
-                {codexModels?.fetched_at ? ` · refreshed ${formatTime(codexModels.fetched_at)}` : ""}
-                {codexModels?.stale ? " · stale" : ""}
-              </span>
-              <Button type="button" variant="outline" size="sm" onClick={refreshCodexModels} disabled={codexBusy}>
-                <RefreshCw className={codexBusy ? "animate-spin" : ""} /> Refresh models
-              </Button>
-              {codexModels?.error ? <p className="w-full text-destructive">{codexModels.error}</p> : null}
-            </div>
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-xs">
+                <span className="text-muted-foreground">
+                  {codexModels?.models.length ?? 0} Codex models
+                  {codexModels?.fetched_at ? ` · refreshed ${formatTime(codexModels.fetched_at)}` : ""}
+                  {codexModels?.stale ? " · stale" : ""}
+                </span>
+                <Button type="button" variant="outline" size="sm" onClick={refreshCodexModels} disabled={codexBusy}>
+                  <RefreshCw className={codexBusy ? "animate-spin" : ""} /> Refresh models
+                </Button>
+                {codexModels?.error ? <p className="w-full text-destructive">{codexModels.error}</p> : null}
+              </div>
+              <label htmlFor="codex-fast-mode-settings" className="flex items-start gap-3 rounded-md border p-3">
+                <input
+                  id="codex-fast-mode-settings"
+                  type="checkbox"
+                  className="mt-0.5 size-4 accent-teal-700"
+                  checked={config.codex_fast_mode}
+                  onChange={(event) => void toggleCodexFastMode(event.target.checked)}
+                />
+                <span className="grid gap-0.5">
+                  <span className="text-sm font-medium">Fast mode</span>
+                  <span className="text-xs text-muted-foreground">
+                    Supported Codex models run about 1.5× faster and consume more ChatGPT credits.
+                  </span>
+                </span>
+              </label>
+            </>
           ) : null}
           <div className="grid gap-3 md:grid-cols-2">
             <WorkloadModelEditor

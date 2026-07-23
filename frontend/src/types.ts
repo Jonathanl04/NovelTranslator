@@ -67,6 +67,7 @@ export type Config = {
   glossary_backend: LlmBackend;
   translation_reasoning_effort: ReasoningEffort;
   glossary_reasoning_effort: ReasoningEffort;
+  codex_fast_mode: boolean;
   codex_translation_model: string;
   codex_glossary_model: string;
   translation_model: string;
