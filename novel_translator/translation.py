@@ -10,6 +10,7 @@ from .openrouter import OPENROUTER_TIMEOUT_MESSAGE, call_openrouter
 from .errors import AppError
 from .failure_log import log_llm_failure
 from .glossary import glossary_path, glossary_prompt, load_glossary, merge_glossary_entries
+from .glossary_strategy import recent_glossary_for_chapter
 from .json_store import write_json
 from .llm_schemas import FRAGMENT_REPLACEMENTS_SCHEMA, GLOSSARY_SCHEMA, TRANSLATION_SCHEMA
 from .translation_prompts import (
@@ -119,6 +120,7 @@ def populate_glossary_for_chapter(
     should_abort: Callable[[], bool] | None = None,
     defer_existing_updates: bool = False,
     deferred_existing_updates: list[dict[str, Any]] | None = None,
+    prompt_glossary: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     config = load_config()
     api_key = config["openrouter_api_key"]
@@ -129,7 +131,13 @@ def populate_glossary_for_chapter(
 
     with state_lock:
         glossary = load_glossary(novel)
-    messages = build_glossary_messages(title, body, glossary)
+    if prompt_glossary is None and config.get("glossary_strategy", "full") == "rolling":
+        prompt_glossary = recent_glossary_for_chapter(
+            novel, filename, original, glossary
+        )
+    messages = build_glossary_messages(
+        title, body, glossary if prompt_glossary is None else prompt_glossary
+    )
     retry_messages = messages
     api_response: dict[str, Any] = {}
     if should_abort and should_abort():
@@ -198,6 +206,7 @@ def translate_chapter(
     should_abort: Callable[[], bool] | None = None,
     defer_existing_glossary_updates: bool = False,
     deferred_existing_glossary_updates: list[dict[str, Any]] | None = None,
+    glossary_prompt_entries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
     api_key = config["openrouter_api_key"]
@@ -214,6 +223,7 @@ def translate_chapter(
             should_abort=should_abort,
             defer_existing_updates=defer_existing_glossary_updates,
             deferred_existing_updates=deferred_existing_glossary_updates,
+            prompt_glossary=glossary_prompt_entries,
         )
         if populate_glossary
         else load_glossary(novel)

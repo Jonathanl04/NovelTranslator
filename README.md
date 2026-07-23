@@ -93,6 +93,7 @@ Use the Settings page to configure:
 - ChatGPT/Codex connection
 - OpenRouter or Codex backend for glossary and translation independently
 - Glossary model
+- Full or recent-chapter glossary context strategy
 - Translation model
 - None, low, medium, or high reasoning for glossary and translation independently
 - Added custom models
@@ -125,6 +126,8 @@ To add another OpenRouter model:
 Added models appear in the Glossary model and Translation model dropdowns. Selecting a model from either dropdown saves that active model immediately. Removing an added model also saves immediately.
 
 Using the same model for both can improve cache-hit opportunities because glossary and translation prompts share a stable prefix.
+
+The default `Full glossary` strategy sends every established entry to glossary extraction. `Recent 100 chapters` freezes entries found in the previous 100 source chapters during bulk translation, rebuilds that snapshot every 50 translated chapters, and appends newly created or returning exact-match terms without reordering the frozen prefix. The frozen state is saved with bulk progress so pause/resume keeps the same prompt ordering. Single-chapter translation uses the previous 100 chapters plus exact matches from the selected chapter.
 
 Usage and cost:
 

@@ -4,9 +4,15 @@ from threading import Event, Lock, Thread, current_thread
 from typing import Any
 
 from . import settings
-from .config import safe_file_stem
+from .chapters import source_path
+from .config import load_config, safe_file_stem
 from .errors import AppError
 from .glossary import glossary_path, load_glossary, merge_glossary_entries
+from .glossary_strategy import (
+    finish_rolling_glossary_chapter,
+    normalize_rolling_glossary_state,
+    prepare_rolling_glossary_prompt,
+)
 from .json_store import read_json, write_json
 from .novel_names import ensure_translated_novel_name, needs_translated_novel_name
 from .translation import translate_chapter
@@ -27,6 +33,10 @@ def bulk_state_path(novel: str):
 
 def empty_bulk_state(novel: str) -> dict[str, Any]:
     return {"novel": novel, "running": False, "aborted": False, "items": []}
+
+
+def public_bulk_state(state: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in state.items() if key != "rolling_glossary"}
 
 
 def normalize_bulk_item(item: dict[str, Any]) -> dict[str, str]:
@@ -59,12 +69,16 @@ def load_bulk_state(novel: str) -> dict[str, Any]:
         raise AppError("Bulk translation items must be a list.", 500)
     running = bool(raw.get("running", False))
     aborted = bool(raw.get("aborted", False))
-    return {
+    state = {
         "novel": safe_novel,
         "running": running,
         "aborted": aborted,
         "items": [normalize_bulk_item(item) for item in items if isinstance(item, dict)],
     }
+    rolling_glossary = normalize_rolling_glossary_state(raw.get("rolling_glossary"))
+    if rolling_glossary is not None:
+        state["rolling_glossary"] = rolling_glossary
+    return state
 
 
 def save_bulk_state(novel: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -78,6 +92,9 @@ def save_bulk_state(novel: str, state: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item, dict)
         ],
     }
+    rolling_glossary = normalize_rolling_glossary_state(state.get("rolling_glossary"))
+    if rolling_glossary is not None:
+        normalized["rolling_glossary"] = rolling_glossary
     write_json(bulk_state_path(novel), normalized)
     return normalized
 
@@ -249,11 +266,39 @@ def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:
                 save_bulk_state(novel, state)
 
             try:
+                rolling_state = None
+                rolling_prompt = None
+                glossary_before: list[dict[str, Any]] = []
+                chapter_text = ""
+                if (
+                    current["mode"] == "full"
+                    and load_config().get("glossary_strategy", "full") == "rolling"
+                ):
+                    glossary_before = load_glossary(novel)
+                    chapter_text = source_path(novel, current["filename"]).read_text(
+                        encoding="utf-8"
+                    )
+                    rolling_state, rolling_prompt = prepare_rolling_glossary_prompt(
+                        novel,
+                        current["filename"],
+                        chapter_text,
+                        glossary_before,
+                        state.get("rolling_glossary"),
+                    )
+                    with _bulk_lock:
+                        prepared_state = load_bulk_state(novel)
+                        prepared_state["rolling_glossary"] = rolling_state
+                        save_bulk_state(novel, prepared_state)
                 if current["mode"] == "name":
                     ensure_translated_novel_name(novel, should_abort=abort_event.is_set)
                     if needs_translated_novel_name(novel):
                         raise AppError("Translation backend did not return a translated title.")
                 else:
+                    prompt_kwargs = (
+                        {"glossary_prompt_entries": rolling_prompt}
+                        if rolling_prompt is not None
+                        else {}
+                    )
                     translate_chapter(
                         novel,
                         current["filename"],
@@ -263,7 +308,15 @@ def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:
                         deferred_existing_glossary_updates=(
                             pending_existing_glossary_updates if current["mode"] == "full" else None
                         ),
+                        **prompt_kwargs,
                     )
+                    if rolling_state is not None:
+                        rolling_state = finish_rolling_glossary_chapter(
+                            rolling_state,
+                            chapter_text,
+                            glossary_before,
+                            load_glossary(novel),
+                        )
             except Exception as exc:
                 with _bulk_lock:
                     if _bulk_abort_events.get(novel) is not abort_event:
@@ -286,6 +339,10 @@ def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:
                 if _bulk_abort_events.get(novel) is not abort_event:
                     return
                 state = load_bulk_state(novel)
+                if rolling_state is not None:
+                    state["rolling_glossary"] = rolling_state
+                elif current["mode"] == "full":
+                    state.pop("rolling_glossary", None)
                 for item in state["items"]:
                     if item["filename"] == current["filename"]:
                         item["status"] = "done"

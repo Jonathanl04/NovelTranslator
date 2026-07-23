@@ -33,6 +33,7 @@ class TranslatorAppTests(unittest.TestCase):
                 loaded = app.load_config()
                 self.assertEqual(loaded["translation_backend"], "openrouter")
                 self.assertEqual(loaded["glossary_backend"], "openrouter")
+                self.assertEqual(loaded["glossary_strategy"], "full")
 
                 saved = app.save_config(
                     {
@@ -1020,6 +1021,7 @@ class TranslatorAppTests(unittest.TestCase):
                     "glossary_provider": "xiaomi",
                     "translation_reasoning_effort": "high",
                     "glossary_reasoning_effort": "medium",
+                    "glossary_strategy": "rolling",
                 }
             )
 
@@ -1030,6 +1032,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertEqual(saved["glossary_provider"], "xiaomi")
         self.assertEqual(saved["translation_reasoning_effort"], "high")
         self.assertEqual(saved["glossary_reasoning_effort"], "medium")
+        self.assertEqual(saved["glossary_strategy"], "rolling")
 
     def test_save_config_accepts_custom_models_providers_and_added_models(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(

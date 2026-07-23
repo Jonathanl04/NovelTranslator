@@ -7,6 +7,7 @@ from .json_store import read_json, write_json
 
 ALLOWED_BACKENDS = {"openrouter", "codex"}
 ALLOWED_REASONING_EFFORTS = {"none", "low", "medium", "high"}
+ALLOWED_GLOSSARY_STRATEGIES = {"full", "rolling"}
 
 
 def load_config() -> dict[str, Any]:
@@ -47,6 +48,7 @@ def load_config() -> dict[str, Any]:
         "translation_provider": translation_provider,
         "glossary_model": glossary_model,
         "glossary_provider": glossary_provider,
+        "glossary_strategy": glossary_strategy_for_config(config),
         "added_models": normalize_models(config.get("added_models", config.get("favorite_models", []))),
     }
 
@@ -92,6 +94,7 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
     glossary_reasoning_effort = selected_reasoning_effort(
         config, "glossary_reasoning_effort", current
     )
+    glossary_strategy = selected_glossary_strategy(config, current)
     codex_translation_model = str(
         config.get("codex_translation_model", current["codex_translation_model"])
     ).strip()
@@ -114,6 +117,7 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
         "translation_provider": translation_provider,
         "glossary_model": glossary_model,
         "glossary_provider": glossary_provider,
+        "glossary_strategy": glossary_strategy,
         "added_models": normalize_models(
             config.get("added_models", config.get("favorite_models", current["added_models"]))
         ),
@@ -137,6 +141,7 @@ def public_config() -> dict[str, Any]:
         "translation_provider": config["translation_provider"],
         "glossary_model": config["glossary_model"],
         "glossary_provider": config["glossary_provider"],
+        "glossary_strategy": config["glossary_strategy"],
         "added_models": config["added_models"],
         "model_presets": settings.DEFAULT_MODEL_PRESETS,
     }
@@ -174,6 +179,19 @@ def selected_reasoning_effort(
     if effort not in ALLOWED_REASONING_EFFORTS:
         raise AppError(f"{key} must be 'none', 'low', 'medium', or 'high'.")
     return effort
+
+
+def glossary_strategy_for_config(config: dict[str, Any]) -> str:
+    strategy = str(config.get("glossary_strategy", "full")).strip() or "full"
+    return strategy if strategy in ALLOWED_GLOSSARY_STRATEGIES else "full"
+
+
+def selected_glossary_strategy(config: dict[str, Any], current: dict[str, Any]) -> str:
+    strategy = str(config.get("glossary_strategy", current["glossary_strategy"])).strip()
+    strategy = strategy or current["glossary_strategy"]
+    if strategy not in ALLOWED_GLOSSARY_STRATEGIES:
+        raise AppError("glossary_strategy must be 'full' or 'rolling'.")
+    return strategy
 
 
 def safe_file_stem(value: str) -> str:

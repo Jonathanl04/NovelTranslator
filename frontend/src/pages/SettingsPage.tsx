@@ -17,6 +17,7 @@ import type {
   CodexModels,
   CodexRemainingUsage,
   Config,
+  GlossaryStrategy,
   LlmBackend,
   OpenRouterProvider,
   ReasoningEffort,
@@ -204,6 +205,12 @@ export function SettingsPage({
     await onSaveConfig(patch);
   }
 
+  async function selectGlossaryStrategy(strategy: GlossaryStrategy) {
+    const patch: Partial<Config> = { glossary_strategy: strategy };
+    onConfigChange(patch);
+    await onSaveConfig(patch);
+  }
+
   function removeAddedModel(index: number) {
     const added_models = config.added_models.filter((_, itemIndex) => itemIndex !== index);
     onConfigChange({ added_models });
@@ -367,6 +374,25 @@ export function SettingsPage({
             ) : null}
           </section>
           {providerError ? <p className="text-xs text-destructive">{providerError}</p> : null}
+          <section className="grid gap-1.5 rounded-md border p-3">
+            <Label htmlFor="glossary-strategy-settings">Glossary context strategy</Label>
+            <Select
+              value={config.glossary_strategy}
+              onValueChange={(value) => selectGlossaryStrategy(value as GlossaryStrategy)}
+            >
+              <SelectTrigger id="glossary-strategy-settings" className="w-full bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full">Full glossary</SelectItem>
+                <SelectItem value="rolling">Recent 100 chapters</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Recent mode freezes terms seen in the previous 100 chapters, rebuilds every 50
+              translated chapters, and appends exact returning terms at the end.
+            </p>
+          </section>
           {config.added_models.length > 0 ? (
             <div className="grid gap-2">
               <Label>Added models</Label>

@@ -10,6 +10,7 @@ export type OpenRouterProvider = {
 
 export type LlmBackend = "openrouter" | "codex";
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
+export type GlossaryStrategy = "full" | "rolling";
 
 export type CodexAuth = {
   available: boolean;
@@ -72,6 +73,7 @@ export type Config = {
   translation_provider: string;
   glossary_model: string;
   glossary_provider: string;
+  glossary_strategy: GlossaryStrategy;
   added_models: AddedModel[];
   model_presets: AddedModel[];
 };

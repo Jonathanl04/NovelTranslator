@@ -15,7 +15,12 @@ from scraper.download_twkan import download_range as download_twkan_range
 from scraper.download_uukanshu import download_range as download_uukanshu_range
 
 from . import settings
-from .bulk_translate import abort_bulk_translation, get_bulk_state, start_bulk_translation
+from .bulk_translate import (
+    abort_bulk_translation,
+    get_bulk_state,
+    public_bulk_state,
+    start_bulk_translation,
+)
 from .chapters import (
     cover_path,
     delete_novel,
@@ -189,7 +194,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if method == "POST" and parsed.path == "/api/bulk-translate/abort":
                 data = self.body_json()
-                self.json(abort_bulk_translation(str(data.get("novel", ""))))
+                self.json(
+                    public_bulk_state(
+                        abort_bulk_translation(str(data.get("novel", "")))
+                    )
+                )
                 return
             raise AppError("Not found.", 404)
         except AppError as exc:
@@ -224,6 +233,7 @@ class Handler(BaseHTTPRequestHandler):
                 "translation_provider": saved["translation_provider"],
                 "glossary_model": saved["glossary_model"],
                 "glossary_provider": saved["glossary_provider"],
+                "glossary_strategy": saved["glossary_strategy"],
                 "added_models": saved["added_models"],
                 "model_presets": settings.DEFAULT_MODEL_PRESETS,
             }
@@ -254,7 +264,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_bulk_translate(self, method: str, novel: str) -> None:
         if method == "GET":
-            self.json(get_bulk_state(novel))
+            self.json(public_bulk_state(get_bulk_state(novel)))
             return
         if method != "POST":
             raise AppError("Method not allowed.", 405)
@@ -264,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
         items = data.get("items", [])
         if not isinstance(items, list):
             raise AppError("items must be a list.")
-        self.json(start_bulk_translation(novel, items))
+        self.json(public_bulk_state(start_bulk_translation(novel, items)))
 
     def handle_qidian_auth(self, method: str) -> None:
         if method == "GET":

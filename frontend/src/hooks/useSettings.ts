@@ -16,6 +16,7 @@ const emptyConfig: Config = {
   translation_provider: "deepseek",
   glossary_model: "deepseek/deepseek-v4-flash",
   glossary_provider: "deepseek",
+  glossary_strategy: "full",
   added_models: [],
   model_presets: [
     { model: "deepseek/deepseek-v4-flash", provider: "deepseek" },
@@ -68,6 +69,7 @@ export function useSettings(onStatus: (message: string, isError?: boolean) => vo
         translation_provider: nextConfig.translation_provider,
         glossary_model: nextConfig.glossary_model,
         glossary_provider: nextConfig.glossary_provider,
+        glossary_strategy: nextConfig.glossary_strategy,
         added_models: nextConfig.added_models,
       });
       if (version !== requestVersion.current) return;

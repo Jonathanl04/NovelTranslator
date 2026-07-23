@@ -70,6 +70,7 @@ export const api = {
     translation_provider: string;
     glossary_model: string;
     glossary_provider: string;
+    glossary_strategy: Config["glossary_strategy"];
     added_models: Config["added_models"];
   }) => request<Config>("/api/config", { method: "POST", body: JSON.stringify(payload) }),
   openrouterProviders: (model: string) =>
