@@ -1,44 +1,31 @@
 # Novel Translator
 
-Local web app for translating downloaded Chinese or Korean novel chapters into English one chapter at a time.
+Local web app for translating Chinese or Korean web novels into English. It supports single-chapter and bulk translation, keeps terminology consistent with a novel-specific glossary, and exports completed chapters as EPUB.
 
 ## Features
 
-- Lists novels from `data/<novel name>/source/`.
-- Translates one selected `.txt` chapter at a time.
-- Saves translated chapters to `data/<novel name>/translated/<same filename>`.
-- Exports translated chapters to EPUB with a linked table of contents and the downloaded cover image.
-- Keeps a novel-specific glossary in `data/<novel name>/glossary/glossary.json`.
-- Can translate normally with a glossary-first pass, or use `Translate Only` with the current glossary.
-- Uses OpenRouter chat completions or an experimental Codex backend authenticated with ChatGPT.
-- Lets glossary extraction and chapter translation use different backends and models.
-- Uses a Vite React frontend with shadcn/ui components.
-- Rejects translation output that still contains Chinese or Korean source-language text instead of saving partial output.
-- Runs a compact fragment-replacement repair pass when the model leaves Chinese or Korean fragments untranslated.
-- Tracks combined token usage, OpenRouter-reported cost, and Codex quota windows.
+- Translate one chapter or a selected chapter range.
+- Extract and maintain names, places, ranks, techniques, artifacts, and other recurring terms.
+- Use OpenRouter or a ChatGPT-authenticated Codex backend independently for glossary extraction and translation.
+- Reject incomplete translations that still contain Chinese or Korean text and attempt an automatic repair.
+- Export translated chapters, navigation, and cover art as EPUB.
+- Track token usage, OpenRouter-reported cost, and available Codex quota.
 
-## Requirements
+## Quick Start
 
-- Python 3.11 or newer.
-- Node.js 22.22.2, 24.15.0, 26.0.0, or newer for frontend development. The current app also builds on Node 24.12.0 with an npm engine warning from a transitive CLI package.
-- An OpenRouter API key, an eligible ChatGPT/Codex account, or both.
-- Downloader scripts use `requests`, `beautifulsoup4`, and `scrapling`.
+Requirements:
 
-The Codex backend uses the pinned beta `openai-codex` Python SDK and its bundled runtime.
+- Python 3.11 or newer
+- Node.js 22 or newer
+- An OpenRouter API key, an eligible ChatGPT/Codex account, or both
 
-## Setup
-
-Start the local app:
+Start the app from PowerShell:
 
 ```powershell
 .\run_app.ps1
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8765
-```
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The script installs frontend packages when needed and builds the frontend before starting the server.
 
 Optional flags:
 
@@ -47,20 +34,7 @@ Optional flags:
 .\run_app.ps1 -SkipBuild
 ```
 
-For frontend development with hot reload, run the backend on port `8765`, then in another terminal:
-
-```powershell
-cd frontend
-npm run dev
-```
-
-Open:
-
-```text
-http://127.0.0.1:5173
-```
-
-Paste your OpenRouter API key in Settings and click `Save API Key`, or click `Sign in with ChatGPT` to use Codex. The OpenRouter key is stored in the ignored `data/translator_config.json`; ChatGPT credentials remain in Codex's user credential store.
+Open Settings to save an OpenRouter API key or sign in with ChatGPT for Codex access. Local configuration is stored in the ignored `data/translator_config.json`; ChatGPT credentials remain in Codex's credential store.
 
 ## Docker
 
@@ -70,172 +44,91 @@ Build and start the app:
 docker compose up --build
 ```
 
-Open:
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The local `data/` directory is mounted into the container, so books, translations, glossaries, and configuration persist between runs.
+
+## Translation
+
+Place source `.txt` chapters under:
 
 ```text
-http://127.0.0.1:8765
+data/<novel name>/source/
 ```
 
-The compose file mounts local `data/` into the container. It contains each novel's `source/`, `translated/`, and `glossary/` folders, plus `logs/` and `translator_config.json`.
+Each chapter should have its title on the first line and the body below it.
 
-The scraper scripts and their Python dependencies are included in the image. The image installs `scrapling[fetchers]` and runs `scrapling install` so `StealthyFetcher` has its browser dependencies. Run the scrapers through Compose so downloaded chapters land under `data/<book name>/source/`:
+Two translation modes are available:
 
-```powershell
-docker compose run --rm novel-translator python scraper/download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
-docker compose run --rm novel-translator python scraper/download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
+- **Translate + Glossary** extracts or updates terminology first, then translates with the updated glossary.
+- **Translate Only** skips glossary extraction and translates with the current glossary.
+
+Translated chapters are saved under `data/<novel name>/translated/` using the original filename. Bulk progress is saved automatically and can resume after an interruption.
+
+## Glossary Context
+
+Each novel has its own glossary at:
+
+```text
+data/<novel name>/glossary/glossary.json
 ```
 
-## Settings
+Glossary entries contain a source term, its established English rendering, a category, and optional gender or pronoun information.
 
-Use the Settings page to configure:
+Settings provides two glossary context strategies:
 
-- OpenRouter API key
-- ChatGPT/Codex connection
-- OpenRouter or Codex backend for glossary and translation independently
-- Glossary model
-- Full or recent-chapter glossary context strategy
-- Translation model
-- None, low, medium, or high reasoning for glossary and translation independently
-- Added custom models
+- **Full glossary** sends every established entry to glossary extraction.
+- **Recent 100 chapters** freezes terms found in the previous 100 chapters during bulk translation, rebuilds the snapshot every 50 translated chapters, and appends newly created or returning exact-match terms. This limits context growth while preserving a stable prompt prefix between refreshes.
 
-OpenRouter requests use its chat completions API. Codex requests use an experimental minimal direct Responses adapter with no coding tools. Both backends use the configured reasoning effort. Authentication, model discovery, and remaining-usage reporting still use the pinned SDK and its managed ChatGPT credentials. Codex requests consume Codex plan limits or ChatGPT credits rather than general OpenAI API quota.
-
-For OpenRouter, each structured request first uses the same non-strict JSON Schema as Codex. If the selected model/provider rejects schema mode, the app remembers that limitation and falls back to JSON-object mode, then to no response format if necessary. Existing parse and repair retries handle malformed responses after those transport fallbacks.
-
-After signing in, use `Refresh models` to retrieve the current model catalog for that account. A saved model that disappears remains visibly unavailable until another model is selected; the app never switches it silently. `Refresh usage` displays the primary and secondary quota windows, reset times, optional credits, and the last successful refresh time.
-
-Defaults:
-
-- Glossary: `deepseek/deepseek-v4-flash` with provider `deepseek`
-- Translation: `deepseek/deepseek-v4-flash` with provider `deepseek`
-
-Default model choices:
-
-- `deepseek/deepseek-v4-flash` with provider `deepseek`
-- `deepseek/deepseek-v4-pro` with provider `deepseek`
-- `xiaomi/mimo-v2.5` with provider `xiaomi`
-- `xiaomi/mimo-v2.5-pro` with provider `xiaomi`
-
-To add another OpenRouter model:
-
-1. Enter the OpenRouter model ID in the separate `Add model` area, such as `tencent/hy3:free`.
-2. Click `Load providers`.
-3. Select a provider.
-4. Click `Add model`.
-
-Added models appear in the Glossary model and Translation model dropdowns. Selecting a model from either dropdown saves that active model immediately. Removing an added model also saves immediately.
-
-Using the same model for both can improve cache-hit opportunities because glossary and translation prompts share a stable prefix.
-
-The default `Full glossary` strategy sends every established entry to glossary extraction. `Recent 100 chapters` freezes entries found in the previous 100 source chapters during bulk translation, rebuilds that snapshot every 50 translated chapters, and appends newly created or returning exact-match terms without reordering the frozen prefix. The frozen state is saved with bulk progress so pause/resume keeps the same prompt ordering. Single-chapter translation uses the previous 100 chapters plus exact matches from the selected chapter.
-
-Usage and cost:
-
-- Token usage shows combined input, output, reasoning, and total tokens. Codex rows are prefixed with `codex:`.
-- Cost is recorded from OpenRouter `usage.cost`, including upstream BYOK cost when OpenRouter reports it.
-- Reported API cost excludes subscription-backed Codex usage because OpenAI does not return a per-request USD cost for it.
-- If OpenRouter omits cost, the app records `0` instead of estimating from hardcoded rates.
-- Actual cost varies with model, provider, chapter length, glossary size, and repair passes.
-
-## Translation Flow
-
-`Translate Selected Chapter`:
-
-1. Reads the selected source chapter.
-2. Extracts glossary entries for the selected novel.
-3. Saves/merges glossary entries into `data/<novel>/glossary/glossary.json`.
-4. Translates the chapter using the updated glossary.
-5. If Chinese or Korean source-language text remains, asks the model for compact replacements only.
-6. Falls back to a full repair pass only if compact replacement fails.
-7. Saves the final English chapter under `data/<novel>/translated/`.
-
-`Translate Only`:
-
-1. Skips glossary extraction.
-2. Translates using the current novel glossary.
-3. Runs the same untranslated source-language validation and repair flow.
+Single-chapter translation in recent mode uses the previous 100 chapters plus exact glossary matches from the selected chapter.
 
 ## EPUB Export
 
-After at least one chapter has been translated, click `Export EPUB` in the novel sidebar. The generated `.epub` contains:
+After translating at least one chapter, use **Export EPUB** from the novel sidebar. The EPUB includes all available translated chapters, a linked table of contents, navigation metadata, and the downloaded cover when present.
 
-- All translated chapters for the selected novel.
-- A reader-visible table of contents with links to each chapter.
-- EPUB navigation metadata for compatible readers.
-- The novel cover from `data/<novel>/source/cover.<ext>` when one exists.
+## Downloaders
 
-## Book Management
-
-The Books page lists local novels from `data/<novel>/source/`.
-
-Use the trash button on a book card to delete a local book. Delete removes:
-
-- downloaded source files
-- translated chapter files
-- the book-specific glossary
-- saved bulk translation state
-
-## Glossary Rules
-
-Glossary entries contain:
-
-- `source_term`
-- `english_term`
-- `category`
-- `gender_or_pronoun`
-
-Glossaries are novel-specific. A new novel starts with an empty glossary.
-
-The app asks the configured glossary model to add only terms that need consistency, such as:
-
-- character names
-- places
-- sects, clans, organizations, schools, factions
-- cultivation realms and ranks
-- recurring worldbuilding terms
-- techniques, spells, artifacts, weapons, formations, pills, treasures
-- recurring titles or address forms
-- gender/pronoun facts when inferable
-
-## Project Layout
-
-```text
-app.py                 Compatibility entry point for running/importing the app
-novel_translator/      Python backend modules, local API, and OpenRouter integration
-frontend/              Vite React frontend with shadcn/ui components
-scraper/download_uukanshu.py UU看書 chapter downloader
-data/<novel>/source/   Downloaded source chapters and cover, ignored by git
-data/<novel>/translated/ Translated chapters and EPUB exports
-data/<novel>/glossary/ Novel-specific glossary files
-data/logs/             LLM/OpenRouter failure logs
-tests/                 Unit tests
-data/translator_config.json Local API key/model config, ignored by git
-```
-
-## Downloader
-
-Use the scraper to download a chapter range from a UU看書 novel into `data/<book name>/source/`:
+The app supports downloads from UU看書, 69书吧, TWKAN, and Qidian. Standalone scripts are available under `scraper/`:
 
 ```powershell
 python .\scraper\download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
-```
-
-The script only accepts `uukanshu.cc` URLs.
-
-Use the 69书吧 scraper the same way:
-
-```powershell
 python .\scraper\download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
 ```
 
-Both scrapers also save the novel cover as `cover.<ext>` in the same source directory.
-
-## Tests
-
-Run:
+Run the same commands through Docker when using the containerized app so files are written to the mounted `data/` directory:
 
 ```powershell
-python -m pytest tests/test_app.py -q
+docker compose run --rm novel-translator python scraper/download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
+```
+
+Downloaders save chapters and available cover art under the novel's `source/` directory.
+
+## Data Layout
+
+```text
+data/<novel>/source/       Source chapters and cover
+data/<novel>/translated/   English chapters and EPUB exports
+data/<novel>/glossary/     Novel-specific glossary
+data/bulk/                 Saved bulk translation progress
+data/logs/                 LLM failure logs
+data/translator_config.json Local settings and API key
+```
+
+Deleting a novel from the Books page removes its source chapters, translations, glossary, and saved bulk state.
+
+## Development
+
+For frontend hot reload, start the backend on port `8765`, then run:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+
+Run backend tests and verify the frontend build with:
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py"
 cd frontend
 npm run build
 ```
