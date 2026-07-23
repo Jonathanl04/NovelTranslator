@@ -14,6 +14,8 @@ from .usage import record_llm_usage
 
 
 CODEX_TIMEOUT_SECONDS = 300
+CODEX_TIMEOUT_MESSAGE = "Codex request timed out."
+CODEX_PREMATURE_RESPONSE_MESSAGE = "Codex request failed: Response ended prematurely"
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 FIXED_CODEX_MODELS: tuple[dict[str, Any], ...] = ()
 
@@ -62,7 +64,7 @@ class CodexResponsesAdapter:
                 timeout=CODEX_TIMEOUT_SECONDS,
             )
         except requests.Timeout as exc:
-            raise AppError("Codex request timed out.", 502) from exc
+            raise AppError(CODEX_TIMEOUT_MESSAGE, 502) from exc
         except requests.RequestException as exc:
             raise AppError(f"Codex request failed: {exc}", 502) from exc
 

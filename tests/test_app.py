@@ -14,9 +14,18 @@ from urllib.error import HTTPError
 
 import app
 from novel_translator import settings
-from novel_translator.codex_backend import direct_responses_payload, parse_codex_sse
+from novel_translator.codex_backend import (
+    CODEX_PREMATURE_RESPONSE_MESSAGE,
+    CODEX_TIMEOUT_MESSAGE,
+    direct_responses_payload,
+    parse_codex_sse,
+)
 from novel_translator.server import acquire_server_lock, release_server_lock
-from novel_translator.translation import codex_cache_key, configured_api_call
+from novel_translator.translation import (
+    codex_cache_key,
+    configured_api_call,
+    is_retryable_translation_request_error,
+)
 
 
 def frontend_source() -> str:
@@ -84,6 +93,28 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertNotEqual(glossary_key, codex_cache_key("Book", "translation"))
         self.assertNotEqual(glossary_key, codex_cache_key("Other Book", "glossary"))
         self.assertLessEqual(len(glossary_key), 64)
+
+    def test_translation_request_retry_recognizes_transient_errors(self) -> None:
+        self.assertTrue(
+            is_retryable_translation_request_error(
+                app.AppError(CODEX_TIMEOUT_MESSAGE, 502)
+            )
+        )
+        self.assertTrue(
+            is_retryable_translation_request_error(
+                app.AppError("OpenRouter request timed out.", 502)
+            )
+        )
+        self.assertTrue(
+            is_retryable_translation_request_error(
+                app.AppError(CODEX_PREMATURE_RESPONSE_MESSAGE, 502)
+            )
+        )
+        self.assertFalse(
+            is_retryable_translation_request_error(
+                app.AppError("Codex request failed: HTTP 503", 502)
+            )
+        )
 
     def test_codex_model_refresh_preserves_stale_catalog_on_failure(self) -> None:
         model = SimpleNamespace(
@@ -2186,7 +2217,7 @@ class TranslatorAppTests(unittest.TestCase):
                 "not json",
             )
 
-    def test_translate_only_retries_timeout_with_same_messages_and_shared_retry_limit(self) -> None:
+    def test_translate_only_retries_transient_codex_error_with_shared_retry_limit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output = root / "output"
@@ -2215,7 +2246,7 @@ class TranslatorAppTests(unittest.TestCase):
             def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
                 calls.append(json.dumps(messages, ensure_ascii=False))
                 if len(calls) == 1:
-                    raise app.AppError("OpenRouter request timed out.", 502)
+                    raise app.AppError(CODEX_PREMATURE_RESPONSE_MESSAGE, 502)
                 if len(calls) == 2:
                     return {"choices": [{"message": {"content": "not json"}}]}
                 return {

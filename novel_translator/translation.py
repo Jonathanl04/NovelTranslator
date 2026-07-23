@@ -5,7 +5,11 @@ from typing import Any, Callable
 
 from .chapters import source_path, split_chapter, write_translation
 from .config import load_config
-from .codex_backend import call_codex
+from .codex_backend import (
+    CODEX_PREMATURE_RESPONSE_MESSAGE,
+    CODEX_TIMEOUT_MESSAGE,
+    call_codex,
+)
 from .openrouter import OPENROUTER_TIMEOUT_MESSAGE, call_openrouter
 from .errors import AppError
 from .failure_log import log_llm_failure
@@ -115,8 +119,13 @@ def log_parse_failure(
     log_llm_failure(event, llm_request_payload(model, messages), str(error), response=response)
 
 
-def is_retryable_translation_timeout(error: AppError) -> bool:
-    return OPENROUTER_TIMEOUT_MESSAGE in str(error)
+def is_retryable_translation_request_error(error: AppError) -> bool:
+    message = str(error)
+    return (
+        OPENROUTER_TIMEOUT_MESSAGE in message
+        or CODEX_TIMEOUT_MESSAGE in message
+        or CODEX_PREMATURE_RESPONSE_MESSAGE in message
+    )
 
 
 def populate_glossary_for_chapter(
@@ -256,7 +265,7 @@ def translate_chapter(
                     config["codex_fast_mode"],
                 )
             except AppError as exc:
-                if not is_retryable_translation_timeout(exc) or retry_index == TRANSLATION_JSON_RETRIES:
+                if not is_retryable_translation_request_error(exc) or retry_index == TRANSLATION_JSON_RETRIES:
                     raise
                 continue
             try:
