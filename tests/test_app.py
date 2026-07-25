@@ -1426,6 +1426,7 @@ class TranslatorAppTests(unittest.TestCase):
         self.assertIn("/api/scrape", api_source)
         self.assertIn("handle_scrape", server_source)
         self.assertIn("download_69shuba_range", server_source)
+        self.assertIn("download_bookto_range", server_source)
         self.assertIn("download_uukanshu_range", server_source)
 
     def test_bulk_translation_progress_ui_is_rendered(self) -> None:
