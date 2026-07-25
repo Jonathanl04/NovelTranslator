@@ -125,6 +125,18 @@ def is_retryable_translation_request_error(error: AppError) -> bool:
         OPENROUTER_TIMEOUT_MESSAGE in message
         or CODEX_TIMEOUT_MESSAGE in message
         or CODEX_PREMATURE_RESPONSE_MESSAGE in message
+        or is_retryable_service_unavailable(message)
+    )
+
+
+def is_retryable_service_unavailable(message: str) -> bool:
+    prefixes = (
+        "OpenRouter request failed: HTTP 503",
+        "Codex request failed: HTTP 503",
+    )
+    return any(
+        message == prefix or message.startswith(f"{prefix} ")
+        for prefix in prefixes
     )
 
 

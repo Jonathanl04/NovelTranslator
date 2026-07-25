@@ -110,9 +110,19 @@ class TranslatorAppTests(unittest.TestCase):
                 app.AppError(CODEX_PREMATURE_RESPONSE_MESSAGE, 502)
             )
         )
+        self.assertTrue(
+            is_retryable_translation_request_error(
+                app.AppError("Codex request failed: HTTP 503 service unavailable", 502)
+            )
+        )
+        self.assertTrue(
+            is_retryable_translation_request_error(
+                app.AppError("OpenRouter request failed: HTTP 503", 502)
+            )
+        )
         self.assertFalse(
             is_retryable_translation_request_error(
-                app.AppError("Codex request failed: HTTP 503", 502)
+                app.AppError("Codex request failed: HTTP 502 bad gateway", 502)
             )
         )
 
@@ -2217,7 +2227,7 @@ class TranslatorAppTests(unittest.TestCase):
                 "not json",
             )
 
-    def test_translate_only_retries_transient_codex_error_with_shared_retry_limit(self) -> None:
+    def test_translate_only_retries_http_503_from_both_backends(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output = root / "output"
@@ -2246,9 +2256,13 @@ class TranslatorAppTests(unittest.TestCase):
             def fake_call(api_key: str, model: str, messages: list[dict[str, str]]) -> dict:
                 calls.append(json.dumps(messages, ensure_ascii=False))
                 if len(calls) == 1:
-                    raise app.AppError(CODEX_PREMATURE_RESPONSE_MESSAGE, 502)
+                    raise app.AppError(
+                        "OpenRouter request failed: HTTP 503 service unavailable", 502
+                    )
                 if len(calls) == 2:
-                    return {"choices": [{"message": {"content": "not json"}}]}
+                    raise app.AppError(
+                        "Codex request failed: HTTP 503 service unavailable", 502
+                    )
                 return {
                     "choices": [
                         {
@@ -2277,9 +2291,7 @@ class TranslatorAppTests(unittest.TestCase):
 
             self.assertEqual(len(calls), 3)
             self.assertEqual(calls[1], calls[0])
-            third_messages = json.loads(calls[2])
-            self.assertEqual(third_messages[:2], json.loads(calls[0]))
-            self.assertEqual(third_messages[2], {"role": "assistant", "content": "not json"})
+            self.assertEqual(calls[2], calls[0])
             self.assertIn("The Taixuan Realm.", result["translated"])
 
     def test_tiny_translation_with_source_language_uses_incomplete_retry(self) -> None:
