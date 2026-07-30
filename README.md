@@ -86,12 +86,14 @@ After translating at least one chapter, use **Export EPUB** from the novel sideb
 
 ## Downloaders
 
-The app supports downloads from UU看書, 69书吧, Bookto23, TWKAN, and Qidian. Standalone scripts are available under `scraper/`:
+The app supports downloads from UU看書, 69书吧, Bookto, TWKAN, and Qidian. Bookto
+domain changes are handled automatically. Standalone scripts are available under
+`scraper/`:
 
 ```powershell
 python .\scraper\download_uukanshu.py https://uukanshu.cc/book/25771/ 1 30
 python .\scraper\download_69shuba.py https://www.69shuba.com/book/77582.htm 1 30
-python .\scraper\download_bookto.py "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341&spage=1" 1 30
+python .\scraper\download_bookto.py "https://bookto24.com/bbs/board.php?bo_table=novel&wr_id=27341&spage=1" 1 30
 ```
 
 Run the same commands through Docker when using the containerized app so files are written to the mounted `data/` directory:

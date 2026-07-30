@@ -17,7 +17,11 @@ from scrapling.fetchers import StealthySession
 
 DATA_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_DATA_DIR", "data"))
 OUTPUT_ROOT = Path(os.environ.get("NOVEL_TRANSLATOR_OUTPUT_ROOT", DATA_ROOT))
-PROFILE_DIR = Path(os.environ.get("NOVEL_TRANSLATOR_BOOKTO_PROFILE_DIR", DATA_ROOT / ".bookto23-profile"))
+PROFILE_DIR = Path(os.environ.get("NOVEL_TRANSLATOR_BOOKTO_PROFILE_DIR", DATA_ROOT / ".bookto-profile"))
+BOOKTO_STATE_PATH = DATA_ROOT / ".bookto-domain.json"
+BOOKTO_HOST_PATTERN = re.compile(r"(?:www\.)?bookto(?P<number>\d+)\.com", re.IGNORECASE)
+BOOKTO_MAX_SUCCESSOR_CHECKS = 10
+BOOKTO_PROBE_TIMEOUT = 10
 CHAPTER_DELAY = 1.0
 FETCH_OPTIONS = {
     "headless": True,
@@ -44,6 +48,125 @@ _CLOUDFLARE_MARKERS = (
 ProgressCallback = Callable[[dict[str, object]], None]
 
 
+def is_bookto_host(host: str) -> bool:
+    return BOOKTO_HOST_PATTERN.fullmatch(host.lower()) is not None
+
+
+def bookto_host_number(host: str) -> int:
+    match = BOOKTO_HOST_PATTERN.fullmatch(host.lower())
+    if match is None:
+        raise ValueError(f"Not a numbered Bookto host: {host}")
+    return int(match.group("number"))
+
+
+def point_bookto_url_at_host(url: str, host: str) -> str:
+    parsed = urlparse(url)
+    if not is_bookto_host(parsed.netloc):
+        raise ValueError("This scraper only supports numbered bookto.com URLs.")
+    if not is_bookto_host(host):
+        raise ValueError(f"Not a numbered Bookto host: {host}")
+    return parsed._replace(netloc=host.lower()).geturl()
+
+
+def load_saved_bookto_host(state_path: Path | None = None) -> str | None:
+    path = state_path or BOOKTO_STATE_PATH
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    host = state.get("host") if isinstance(state, dict) else None
+    return host.lower() if isinstance(host, str) and is_bookto_host(host) else None
+
+
+def save_bookto_host(host: str, state_path: Path | None = None) -> None:
+    if not is_bookto_host(host):
+        raise ValueError(f"Not a numbered Bookto host: {host}")
+    path = state_path or BOOKTO_STATE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps({"host": host.lower()}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(path)
+
+
+def migrate_saved_bookto_urls(host: str, library_root: Path | None = None) -> int:
+    if not is_bookto_host(host):
+        raise ValueError(f"Not a numbered Bookto host: {host}")
+
+    root = library_root or OUTPUT_ROOT
+    current_number = bookto_host_number(host)
+    updated_count = 0
+    for metadata_path in root.glob("*/metadata.json"):
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(metadata, dict):
+            continue
+
+        source_url = metadata.get("source_url")
+        if not isinstance(source_url, str):
+            continue
+        parsed = urlparse(source_url)
+        if not is_bookto_host(parsed.netloc):
+            continue
+        if bookto_host_number(parsed.netloc) >= current_number:
+            continue
+
+        metadata["source_url"] = point_bookto_url_at_host(source_url, host)
+        temporary_path = metadata_path.with_suffix(metadata_path.suffix + ".tmp")
+        try:
+            temporary_path.write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary_path.replace(metadata_path)
+        except OSError:
+            continue
+        updated_count += 1
+    return updated_count
+
+
+def bookto_candidate_hosts(url: str, state_path: Path | None = None) -> list[str]:
+    supplied_number = bookto_host_number(urlparse(url).netloc)
+    saved_host = load_saved_bookto_host(state_path)
+    saved_number = bookto_host_number(saved_host) if saved_host else supplied_number
+    start_number = max(supplied_number, saved_number)
+    return [
+        f"bookto{number}.com"
+        for number in range(start_number, start_number + BOOKTO_MAX_SUCCESSOR_CHECKS)
+    ]
+
+
+def bookto_candidate_is_viable(url: str) -> bool:
+    try:
+        response = requests.get(
+            url,
+            headers=REQUEST_HEADERS,
+            timeout=BOOKTO_PROBE_TIMEOUT,
+            allow_redirects=False,
+        )
+    except requests.RequestException:
+        return False
+
+    try:
+        if 300 <= response.status_code < 400:
+            location = response.headers.get("location", "")
+            if not location:
+                return False
+            original_host = urlparse(url).netloc
+            redirect_host = urlparse(urljoin(url, location)).netloc
+            return (
+                is_bookto_host(redirect_host)
+                and bookto_host_number(redirect_host) == bookto_host_number(original_host)
+            )
+        return response.status_code not in {404, 410, 421, 451} and response.status_code < 500
+    finally:
+        response.close()
+
+
 def fetch_text(
     session: StealthySession,
     url: str,
@@ -66,7 +189,7 @@ def fetch_text(
         if not solve_cloudflare:
             return fetch_text(session, url, wait_selector, solve_cloudflare=True)
         raise RuntimeError(
-            f"Failed to pass bookto23.com security verification for {url}. "
+            f"Failed to pass Bookto security verification for {url}. "
             "Try again later or from a network that can open the page normally."
         )
     if not text.strip():
@@ -88,8 +211,8 @@ def safe_name(name: str) -> str:
 
 def infer_book_id(url: str) -> str:
     parsed = urlparse(url)
-    if parsed.netloc.lower() not in {"bookto23.com", "www.bookto23.com"}:
-        raise ValueError("This scraper only supports bookto23.com URLs.")
+    if not is_bookto_host(parsed.netloc):
+        raise ValueError("This scraper only supports numbered bookto.com URLs.")
 
     query = parse_qs(parsed.query)
     book_ids = query.get("wr_id", [])
@@ -158,6 +281,35 @@ def extract_chapter_links(index_text: str, base_url: str) -> list[tuple[int, str
         raise RuntimeError("No chapter links were found on the book page.")
     links.sort(key=lambda item: item[0])
     return links
+
+
+def resolve_bookto_index(
+    session: StealthySession,
+    source_url: str,
+    state_path: Path | None = None,
+    library_root: Path | None = None,
+) -> tuple[str, str]:
+    failures: list[tuple[str, Exception]] = []
+    for host in bookto_candidate_hosts(source_url, state_path):
+        candidate_url = point_bookto_url_at_host(source_url, host)
+        if not bookto_candidate_is_viable(candidate_url):
+            failures.append((host, RuntimeError("Domain is retired or unreachable.")))
+            continue
+        try:
+            index_text = fetch_text(session, spage_url(candidate_url, 1), ".list-body")
+            extract_chapter_links(index_text, candidate_url)
+        except Exception as exc:
+            failures.append((host, exc))
+            continue
+        save_bookto_host(host, state_path)
+        migrate_saved_bookto_urls(host, library_root)
+        return candidate_url, index_text
+
+    attempted = ", ".join(host for host, _exc in failures)
+    last_error = failures[-1][1]
+    raise RuntimeError(
+        f"Could not find a working Bookto domain after checking: {attempted}"
+    ) from last_error
 
 
 def spage_url(url: str, page_number: int) -> str:
@@ -305,10 +457,22 @@ def download_range(
     infer_book_id(url)
 
     if progress:
-        progress({"stage": "fetching", "current": 0, "total": 0, "message": "Fetching book page..."})
+        progress(
+            {
+                "stage": "fetching",
+                "current": 0,
+                "total": 0,
+                "message": "Finding current Bookto domain...",
+            }
+        )
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     with StealthySession(**FETCH_OPTIONS, user_data_dir=str(PROFILE_DIR)) as session:
-        index_text = fetch_text(session, spage_url(url, 1), ".list-body")
+        url, index_text = resolve_bookto_index(
+            session,
+            url,
+            state_path=output_root / BOOKTO_STATE_PATH.name,
+            library_root=output_root,
+        )
         book_name = safe_name(extract_book_name(index_text))
         cover_url = extract_cover_url(index_text, url)
         chapters = collect_chapters_for_range(session, url, index_text, start, end)
@@ -367,8 +531,8 @@ def download_range(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Download a chapter range from a bookto23 novel.")
-    parser.add_argument("url", help="bookto23.com novel URL")
+    parser = argparse.ArgumentParser(description="Download a chapter range from a Bookto novel.")
+    parser.add_argument("url", help="Numbered bookto.com novel URL")
     parser.add_argument("start", type=int, help="First chapter number to download, inclusive.")
     parser.add_argument("end", type=int, help="Last chapter number to download, inclusive.")
     return parser.parse_args()

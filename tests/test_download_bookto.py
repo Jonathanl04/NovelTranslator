@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from scraper.download_bookto import (
+    bookto_candidate_is_viable,
+    bookto_candidate_hosts,
     collect_chapters_for_range,
     extract_book_name,
     extract_chapter_links,
@@ -12,10 +17,158 @@ from scraper.download_bookto import (
     extract_cover_url,
     fetch_text,
     infer_book_id,
+    load_saved_bookto_host,
+    migrate_saved_bookto_urls,
+    resolve_bookto_index,
+    save_bookto_host,
 )
 
 
 class BooktoDownloaderTests(unittest.TestCase):
+    def test_candidates_increment_from_supplied_domain(self) -> None:
+        old_url = "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341&spage=1"
+
+        with TemporaryDirectory() as temp_dir:
+            candidates = bookto_candidate_hosts(old_url, Path(temp_dir) / "state.json")
+
+        self.assertEqual(candidates[:3], ["bookto23.com", "bookto24.com", "bookto25.com"])
+
+    def test_saved_domain_is_reused_for_old_links(self) -> None:
+        old_url = "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341"
+
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            save_bookto_host("bookto24.com", state_path)
+
+            self.assertEqual(load_saved_bookto_host(state_path), "bookto24.com")
+            self.assertEqual(bookto_candidate_hosts(old_url, state_path)[0], "bookto24.com")
+
+    def test_resolver_increments_and_saves_working_domain(self) -> None:
+        old_url = "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341"
+        working_page = """
+        <ul class="list-body">
+          <li><div class="wr-num">1</div><a href="?bo_table=novel&wr_id=27342">1화</a></li>
+        </ul>
+        """
+
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            with patch(
+                "scraper.download_bookto.bookto_candidate_is_viable",
+                side_effect=[False, True],
+            ), patch(
+                "scraper.download_bookto.fetch_text",
+                return_value=working_page,
+            ) as fetch:
+                resolved_url, page = resolve_bookto_index(
+                    SimpleNamespace(),
+                    old_url,
+                    state_path,
+                    Path(temp_dir),
+                )
+
+            self.assertIn("bookto24.com", resolved_url)
+            self.assertEqual(page, working_page)
+            self.assertEqual(load_saved_bookto_host(state_path), "bookto24.com")
+            self.assertEqual(fetch.call_count, 1)
+            self.assertIn("bookto24.com", fetch.call_args.args[1])
+
+    def test_probe_skips_domain_that_redirects_outside_bookto(self) -> None:
+        response = SimpleNamespace(
+            status_code=301,
+            headers={"location": "https://t.me/toki_ch"},
+            close=lambda: None,
+        )
+
+        with patch("scraper.download_bookto.requests.get", return_value=response):
+            viable = bookto_candidate_is_viable(
+                "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341"
+            )
+
+        self.assertFalse(viable)
+
+    def test_probe_accepts_cloudflare_challenge_response(self) -> None:
+        response = SimpleNamespace(
+            status_code=403,
+            headers={},
+            close=lambda: None,
+        )
+
+        with patch("scraper.download_bookto.requests.get", return_value=response):
+            viable = bookto_candidate_is_viable(
+                "https://bookto24.com/bbs/board.php?bo_table=novel&wr_id=27341"
+            )
+
+        self.assertTrue(viable)
+
+    def test_migrates_all_older_saved_bookto_urls(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            library_root = Path(temp_dir)
+            old_book = library_root / "Old Book"
+            current_book = library_root / "Current Book"
+            other_book = library_root / "Other Book"
+            old_book.mkdir()
+            current_book.mkdir()
+            other_book.mkdir()
+            (old_book / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "name": "Old Book",
+                        "source_url": (
+                            "https://bookto23.com/bbs/board.php?"
+                            "bo_table=novel&wr_id=100&spage=2"
+                        ),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (current_book / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "name": "Current Book",
+                        "source_url": (
+                            "https://bookto24.com/bbs/board.php?"
+                            "bo_table=novel&wr_id=200"
+                        ),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (other_book / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "name": "Other Book",
+                        "source_url": "https://uukanshu.cc/book/123/",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            updated = migrate_saved_bookto_urls("bookto24.com", library_root)
+
+            old_metadata = json.loads(
+                (old_book / "metadata.json").read_text(encoding="utf-8")
+            )
+            current_metadata = json.loads(
+                (current_book / "metadata.json").read_text(encoding="utf-8")
+            )
+            other_metadata = json.loads(
+                (other_book / "metadata.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(updated, 1)
+            self.assertEqual(
+                old_metadata["source_url"],
+                (
+                    "https://bookto24.com/bbs/board.php?"
+                    "bo_table=novel&wr_id=100&spage=2"
+                ),
+            )
+            self.assertIn("bookto24.com", current_metadata["source_url"])
+            self.assertEqual(
+                other_metadata["source_url"],
+                "https://uukanshu.cc/book/123/",
+            )
+
     def test_infer_book_id_from_gnuboard_url(self) -> None:
         url = "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341&spage=1"
 
@@ -24,6 +177,12 @@ class BooktoDownloaderTests(unittest.TestCase):
     def test_infer_book_id_rejects_other_boards(self) -> None:
         with self.assertRaises(ValueError):
             infer_book_id("https://bookto23.com/bbs/board.php?bo_table=webtoon&wr_id=27341")
+
+    def test_infer_book_id_accepts_current_numbered_domain(self) -> None:
+        self.assertEqual(
+            infer_book_id("https://bookto24.com/bbs/board.php?bo_table=novel&wr_id=27341"),
+            "27341",
+        )
 
     def test_extract_book_details(self) -> None:
         html = """

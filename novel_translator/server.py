@@ -10,7 +10,7 @@ from typing import Any
 
 from scraper import qidian_auth
 from scraper.download_69shuba import download_range as download_69shuba_range
-from scraper.download_bookto import download_range as download_bookto_range
+from scraper.download_bookto import download_range as download_bookto_range, is_bookto_host
 from scraper.download_qidian import download_range as download_qidian_range
 from scraper.download_twkan import download_range as download_twkan_range
 from scraper.download_uukanshu import download_range as download_uukanshu_range
@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
         host = urllib.parse.urlparse(url).netloc.lower()
         if host in {"69shuba.com", "www.69shuba.com"}:
             downloader = download_69shuba_range
-        elif host in {"bookto23.com", "www.bookto23.com"}:
+        elif is_bookto_host(host):
             downloader = download_bookto_range
         elif host in {"uukanshu.cc", "www.uukanshu.cc"}:
             downloader = download_uukanshu_range
@@ -332,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
             downloader = download_qidian_range
         else:
             raise AppError(
-                "Supported scraper URLs are 69shuba.com, bookto23.com, uukanshu.cc, twkan.com, and qidian.com."
+                "Supported scraper URLs are 69shuba.com, numbered Bookto domains, uukanshu.cc, twkan.com, and qidian.com."
             )
 
         with scrape_lock:
