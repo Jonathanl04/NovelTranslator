@@ -1534,6 +1534,81 @@ class TranslatorAppTests(unittest.TestCase):
                 "Saved",
             )
 
+    def test_bulk_translations_for_different_books_run_in_parallel(self) -> None:
+        from novel_translator import bulk_translate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            started_novels: set[str] = set()
+            started_lock = threading.Lock()
+            both_started = threading.Event()
+            release_translations = threading.Event()
+
+            def fake_translate(
+                novel: str,
+                filename: str,
+                populate_glossary: bool = True,
+                should_abort=None,
+                **kwargs,
+            ) -> dict[str, str]:
+                with started_lock:
+                    started_novels.add(novel)
+                    if len(started_novels) == 2:
+                        both_started.set()
+                if not release_translations.wait(2):
+                    raise AssertionError("Concurrent translation worker did not start.")
+                return {"filename": filename}
+
+            with patch.object(settings, "DATA_ROOT", root / "data"), patch.object(
+                bulk_translate, "translate_chapter", fake_translate
+            ), patch.object(
+                bulk_translate, "load_config", return_value={"glossary_strategy": "full"}
+            ):
+                try:
+                    for novel in ("Book One", "Book Two"):
+                        bulk_translate.start_bulk_translation(
+                            novel,
+                            [
+                                {
+                                    "filename": "001.txt",
+                                    "title": "Chapter 1",
+                                    "status": "pending",
+                                }
+                            ],
+                        )
+
+                    self.assertTrue(
+                        both_started.wait(2),
+                        "Both books did not translate concurrently.",
+                    )
+                    for novel in ("Book One", "Book Two"):
+                        state = bulk_translate.get_bulk_state(novel)
+                        self.assertTrue(state["running"])
+                        self.assertEqual(state["novel"], novel)
+                        self.assertEqual(state["items"][0]["status"], "translating")
+                finally:
+                    release_translations.set()
+
+                deadline = time.time() + 2
+                states = {
+                    novel: bulk_translate.get_bulk_state(novel)
+                    for novel in ("Book One", "Book Two")
+                }
+                while any(state["running"] for state in states.values()) and time.time() < deadline:
+                    time.sleep(0.02)
+                    states = {
+                        novel: bulk_translate.get_bulk_state(novel)
+                        for novel in ("Book One", "Book Two")
+                    }
+
+            self.assertEqual(started_novels, {"Book One", "Book Two"})
+            for novel, state in states.items():
+                self.assertFalse(state["running"])
+                self.assertFalse(state["aborted"])
+                self.assertEqual(state["novel"], novel)
+                self.assertEqual(state["items"][0]["status"], "done")
+                self.assertEqual(state["items"][0]["message"], "Saved")
+
     def test_failed_bulk_translation_does_not_resume(self) -> None:
         from novel_translator import bulk_translate
 
