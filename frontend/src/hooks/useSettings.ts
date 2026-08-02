@@ -13,18 +13,12 @@ const emptyConfig: Config = {
   codex_fast_mode: false,
   codex_translation_model: "",
   codex_glossary_model: "",
-  translation_model: "deepseek/deepseek-v4-flash",
-  translation_provider: "deepseek",
-  glossary_model: "deepseek/deepseek-v4-flash",
-  glossary_provider: "deepseek",
+  translation_model: "",
+  translation_provider: "",
+  glossary_model: "",
+  glossary_provider: "",
   glossary_strategy: "full",
   added_models: [],
-  model_presets: [
-    { model: "deepseek/deepseek-v4-flash", provider: "deepseek" },
-    { model: "deepseek/deepseek-v4-pro", provider: "deepseek" },
-    { model: "xiaomi/mimo-v2.5", provider: "xiaomi" },
-    { model: "xiaomi/mimo-v2.5-pro", provider: "xiaomi" },
-  ],
 };
 
 const emptyUsage: Usage = { total: emptyUsageBucket, by_model: {} };

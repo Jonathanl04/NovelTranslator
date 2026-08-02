@@ -92,8 +92,11 @@ def codex_cache_key(novel: str, workload: str) -> str:
 
 def require_workload_backend(config: dict[str, Any], workload: str) -> None:
     backend = config[f"{workload}_backend"]
-    if backend == "openrouter" and not config["openrouter_api_key"]:
-        raise AppError("OpenRouter API key is not configured.")
+    if backend == "openrouter":
+        if not config["openrouter_api_key"]:
+            raise AppError("OpenRouter API key is not configured.")
+        if not config[f"{workload}_model"] or not config[f"{workload}_provider"]:
+            raise AppError(f"Select an OpenRouter {workload} model.")
     if backend == "codex" and not config[f"codex_{workload}_model"]:
         raise AppError(f"Codex {workload} model is not configured.")
 

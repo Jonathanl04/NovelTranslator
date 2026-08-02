@@ -76,7 +76,6 @@ export type Config = {
   glossary_provider: string;
   glossary_strategy: GlossaryStrategy;
   added_models: AddedModel[];
-  model_presets: AddedModel[];
 };
 
 export type Chapter = {

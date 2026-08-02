@@ -79,14 +79,14 @@ def save_config(config: dict[str, Any]) -> dict[str, Any]:
     glossary_provider = selected_provider(
         config, "glossary_provider", glossary_model, current["glossary_provider"]
     )
-    if not translation_model or not glossary_model:
-        raise AppError("Models are required.")
-    if not translation_provider or not glossary_provider:
-        raise AppError("Model providers are required.")
     translation_model, translation_provider = normalize_preset_model(
         translation_model, translation_provider
     )
     glossary_model, glossary_provider = normalize_preset_model(glossary_model, glossary_provider)
+    if bool(translation_model) != bool(translation_provider) or bool(glossary_model) != bool(
+        glossary_provider
+    ):
+        raise AppError("Model and provider must be configured together.")
     translation_backend = selected_backend(config, "translation_backend", current)
     glossary_backend = selected_backend(config, "glossary_backend", current)
     translation_reasoning_effort = selected_reasoning_effort(
@@ -149,7 +149,6 @@ def public_config() -> dict[str, Any]:
         "glossary_provider": config["glossary_provider"],
         "glossary_strategy": config["glossary_strategy"],
         "added_models": config["added_models"],
-        "model_presets": settings.DEFAULT_MODEL_PRESETS,
     }
 
 
@@ -239,13 +238,13 @@ def normalize_models(value: Any) -> list[dict[str, str]]:
 def normalize_preset_model(model: str, provider: str) -> tuple[str, str]:
     suffix_matches = [
         preset
-        for preset in settings.DEFAULT_MODEL_PRESETS
+        for preset in settings.LEGACY_MODEL_PRESETS
         if model == preset["model"].rsplit("/", 1)[-1]
     ]
     if len(suffix_matches) == 1:
         preset = suffix_matches[0]
         return preset["model"], preset["provider"]
-    for preset in settings.DEFAULT_MODEL_PRESETS:
+    for preset in settings.LEGACY_MODEL_PRESETS:
         preset_model = preset["model"]
         preset_provider = preset["provider"]
         if model == preset_model:

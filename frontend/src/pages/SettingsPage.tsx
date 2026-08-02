@@ -597,7 +597,8 @@ function ModelProviderEditor({
   const selectedChoiceIndex = choices.findIndex(
     (item) => item.model === model && item.provider === provider
   );
-  const selectedChoiceValue = selectedChoiceIndex >= 0 ? String(selectedChoiceIndex) : "custom";
+  const selectedChoiceValue =
+    selectedChoiceIndex >= 0 ? String(selectedChoiceIndex) : model ? "custom" : "";
 
   return (
     <div className={plain ? "grid gap-3" : "grid gap-3 rounded-md border p-3"}>
@@ -609,7 +610,7 @@ function ModelProviderEditor({
               <SelectValue placeholder="Select model" />
             </SelectTrigger>
             <SelectContent>
-              {selectedChoiceIndex < 0 ? (
+              {selectedChoiceIndex < 0 && model ? (
                 <SelectItem value="custom">{modelLabel({ model, provider })}</SelectItem>
               ) : null}
               {choices.map((item, index) => (
@@ -644,7 +645,7 @@ function modelLabel(model: AddedModel) {
 }
 
 function modelChoices(config: Config) {
-  return [...config.model_presets, ...config.added_models].reduce<AddedModel[]>((items, model) => {
+  return config.added_models.reduce<AddedModel[]>((items, model) => {
     return mergeModels(items, model);
   }, []);
 }

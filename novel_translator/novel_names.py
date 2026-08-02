@@ -55,8 +55,11 @@ def ensure_translated_novel_name(
     config = load_config()
     api_key = config["openrouter_api_key"]
     backend = config["translation_backend"]
-    if backend == "openrouter" and not api_key:
-        raise AppError("OpenRouter API key is not configured.")
+    if backend == "openrouter":
+        if not api_key:
+            raise AppError("OpenRouter API key is not configured.")
+        if not config["translation_model"] or not config["translation_provider"]:
+            raise AppError("Select an OpenRouter translation model.")
     if backend == "codex" and not config["codex_translation_model"]:
         raise AppError("Codex translation model is not configured.")
 

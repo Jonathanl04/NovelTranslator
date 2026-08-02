@@ -237,7 +237,6 @@ class Handler(BaseHTTPRequestHandler):
                 "glossary_provider": saved["glossary_provider"],
                 "glossary_strategy": saved["glossary_strategy"],
                 "added_models": saved["added_models"],
-                "model_presets": settings.DEFAULT_MODEL_PRESETS,
             }
         )
 
