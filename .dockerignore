@@ -10,4 +10,5 @@ translated/
 glossaries/
 logs/
 docker-data/
+data/
 translator_config.json

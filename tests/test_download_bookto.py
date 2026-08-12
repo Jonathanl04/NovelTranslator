@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from scraper.download_bookto import (
     bookto_candidate_is_viable,
     bookto_candidate_hosts,
+    bookto_real_chrome_enabled,
     collect_chapters_for_range,
     extract_book_name,
     extract_chapter_links,
@@ -25,6 +27,20 @@ from scraper.download_bookto import (
 
 
 class BooktoDownloaderTests(unittest.TestCase):
+    def test_real_chrome_can_be_enabled_for_docker(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NOVEL_TRANSLATOR_BOOKTO_REAL_CHROME": "1"},
+        ):
+            self.assertTrue(bookto_real_chrome_enabled())
+
+    def test_real_chrome_can_be_disabled(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NOVEL_TRANSLATOR_BOOKTO_REAL_CHROME": "false"},
+        ):
+            self.assertFalse(bookto_real_chrome_enabled())
+
     def test_candidates_increment_from_supplied_domain(self) -> None:
         old_url = "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341&spage=1"
 
@@ -266,7 +282,10 @@ class BooktoDownloaderTests(unittest.TestCase):
         self.assertEqual(content, "첫 문단입니다.\n둘째 문단입니다.")
 
     def test_fetch_text_rejects_cloudflare_challenge(self) -> None:
-        def blocked_fetch(_url: str, **_kwargs: object) -> SimpleNamespace:
+        fetch_calls: list[dict[str, object]] = []
+
+        def blocked_fetch(_url: str, **kwargs: object) -> SimpleNamespace:
+            fetch_calls.append(kwargs)
             return SimpleNamespace(status=403, html_content="<title>Just a moment...</title>")
 
         session = SimpleNamespace(fetch=blocked_fetch)
@@ -277,6 +296,29 @@ class BooktoDownloaderTests(unittest.TestCase):
                 "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341",
                 ".list-body",
             )
+
+        self.assertEqual(len(fetch_calls), 2)
+        self.assertTrue(all(call["solve_cloudflare"] is False for call in fetch_calls))
+
+    def test_fetch_text_retries_challenge_once_in_persistent_session(self) -> None:
+        responses = iter(
+            [
+                SimpleNamespace(
+                    status=403,
+                    html_content="<title>Just a moment...</title>",
+                ),
+                SimpleNamespace(status=200, html_content='<ul class="list-body"></ul>'),
+            ]
+        )
+        session = SimpleNamespace(fetch=lambda _url, **_kwargs: next(responses))
+
+        text = fetch_text(
+            session,
+            "https://bookto27.com/bbs/board.php?bo_table=novel&wr_id=27341",
+            ".list-body",
+        )
+
+        self.assertIn("list-body", text)
 
     def test_extract_chapter_text_uses_current_bookto_viewer(self) -> None:
         html = """

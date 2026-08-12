@@ -25,7 +25,7 @@ BOOKTO_PROBE_TIMEOUT = 10
 CHAPTER_DELAY = 1.0
 FETCH_OPTIONS = {
     "headless": True,
-    "solve_cloudflare": True,
+    "solve_cloudflare": False,
     "load_dom": True,
     "network_idle": False,
     "google_search": False,
@@ -46,6 +46,16 @@ _CLOUDFLARE_MARKERS = (
 )
 
 ProgressCallback = Callable[[dict[str, object]], None]
+
+
+def bookto_real_chrome_enabled() -> bool:
+    configured = os.environ.get("NOVEL_TRANSLATOR_BOOKTO_REAL_CHROME")
+    if configured is None:
+        return os.name == "nt"
+    return configured.strip().lower() in {"1", "true", "yes", "on"}
+
+
+FETCH_OPTIONS["real_chrome"] = bookto_real_chrome_enabled()
 
 
 def is_bookto_host(host: str) -> bool:
@@ -171,30 +181,36 @@ def fetch_text(
     session: StealthySession,
     url: str,
     wait_selector: str,
-    solve_cloudflare: bool = True,
+    retry_challenge: bool = True,
 ) -> str:
-    response = session.fetch(
-        url,
-        load_dom=True,
-        network_idle=False,
-        google_search=False,
-        solve_cloudflare=solve_cloudflare,
-        wait_selector=wait_selector,
-        wait_selector_state="attached",
-        timeout=90_000 if solve_cloudflare else 15_000,
-        wait=0,
-    )
-    text = response.html_content
-    if response.status >= 400 or any(marker in text for marker in _CLOUDFLARE_MARKERS):
-        if not solve_cloudflare:
-            return fetch_text(session, url, wait_selector, solve_cloudflare=True)
-        raise RuntimeError(
-            f"Failed to pass Bookto security verification for {url}. "
-            "Try again later or from a network that can open the page normally."
+    attempts = 2 if retry_challenge else 1
+    for _attempt in range(attempts):
+        response = session.fetch(
+            url,
+            load_dom=True,
+            network_idle=False,
+            google_search=False,
+            # Scrapling's solver recursively retries a persistent challenge.
+            # Real Chrome usually clears Bookto without it; keep our retry bounded.
+            solve_cloudflare=False,
+            wait_selector=wait_selector,
+            wait_selector_state="attached",
+            timeout=30_000 if retry_challenge else 15_000,
+            wait=0,
         )
-    if not text.strip():
-        raise RuntimeError(f"Failed to fetch {url}: empty page")
-    return text
+        text = response.html_content
+        blocked = response.status >= 400 or any(
+            marker in text for marker in _CLOUDFLARE_MARKERS
+        )
+        if not blocked:
+            if not text.strip():
+                raise RuntimeError(f"Failed to fetch {url}: empty page")
+            return text
+
+    raise RuntimeError(
+        f"Failed to pass Bookto security verification for {url}. "
+        "Try again later or from a network that can open the page normally."
+    )
 
 
 def clean_lines(text: str) -> list[str]:
@@ -362,7 +378,7 @@ def collect_chapters_for_range(
         if page_number == 1:
             continue
         page_url = spage_url(source_url, page_number)
-        page_text = fetch_text(session, page_url, ".list-body", solve_cloudflare=False)
+        page_text = fetch_text(session, page_url, ".list-body", retry_challenge=False)
         for chapter in extract_chapter_links(page_text, page_url):
             if chapter[2] not in seen:
                 seen.add(chapter[2])
@@ -503,7 +519,7 @@ def download_range(
                 session,
                 chapter_url,
                 ".book-text-viewer, #novel_content",
-                solve_cloudflare=False,
+                retry_challenge=False,
             )
             title, content = extract_chapter_text(page_text, fallback_title)
             file_name = f"{chapter_number:03d}_{safe_name(title)}.txt"
