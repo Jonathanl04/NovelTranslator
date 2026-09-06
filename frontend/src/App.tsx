@@ -8,6 +8,7 @@ import type {
   NovelMetadata,
 } from "./types";
 import { AppHeader } from "@/components/AppHeader";
+import { Button } from "@/components/ui/button";
 import { BooksPage } from "@/pages/BooksPage";
 import { GlossaryPage } from "@/pages/GlossaryPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -48,6 +49,7 @@ export function App() {
   const [chapterSearch, setChapterSearch] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
+  const [persistentError, setPersistentError] = useState("");
   const [readerTab, setReaderTab] = useState<ReaderTab>("translated");
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
   const bookLoadId = useRef(0);
@@ -69,6 +71,7 @@ export function App() {
   const showStatus = useCallback((message: string, isError = false) => {
     setStatus(message);
     setError(isError);
+    if (isError) setPersistentError(message);
   }, []);
   const settings = useSettings(showStatus);
   const refreshChapterLoadId = chapterLoadId.current;
@@ -329,6 +332,26 @@ export function App() {
     }
   }
 
+  async function retryFailedChapters() {
+    if (!novel || busy) return;
+    const queue = bulkItems
+      .filter((item) => item.status === "failed" && item.mode !== "name")
+      .map((item) => ({ ...item, status: "pending" as const, message: "Queued for retry" }));
+    if (!queue.length) return;
+    try { await startBulk(queue); }
+    catch (caught) { showStatus(errorMessage(caught), true); }
+  }
+
+  async function retryLoading() {
+    setPersistentError("");
+    settings.reload();
+    library.reload();
+    if (novel) {
+      try { await loadChapters(novel); }
+      catch (caught) { showStatus(errorMessage(caught), true); }
+    }
+  }
+
   async function saveGlossary() {
     try {
       const saved = await api.saveGlossary(novel, cleanGlossary(glossary));
@@ -429,6 +452,14 @@ export function App() {
         onToggleTheme={() => setDarkMode((current) => !current)}
       />
 
+      {persistentError && (
+        <div role="alert" className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 rounded-lg border border-destructive bg-background p-3 text-sm">
+          <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-destructive">{persistentError}</p>
+          <Button type="button" variant="outline" size="sm" onClick={retryLoading}>Retry loading</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setPersistentError("")}>Dismiss</Button>
+        </div>
+      )}
+
       {page === "library" ? (
         <BooksPage
           novels={library.visibleNovels}
@@ -496,6 +527,7 @@ export function App() {
           onClear={() => setBulkSelection(new Set())}
           onTranslate={runTranslate}
           onAbortBulk={abortBulkTranslation}
+          onRetryFailed={retryFailedChapters}
           onReaderTabChange={setReaderTab}
           onPrevious={() => goToChapter(previousChapter?.filename)}
           onNext={() => goToChapter(nextChapter?.filename)}
@@ -514,6 +546,8 @@ export function App() {
           openrouterApiKey={settings.openrouterApiKey}
           config={settings.config}
           usage={settings.usage}
+          saving={settings.saving}
+          saveError={settings.saveError}
           onOpenrouterApiKeyChange={settings.setOpenrouterApiKey}
           onConfigChange={settings.updateConfig}
           onSaveConfig={settings.save}

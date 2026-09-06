@@ -41,6 +41,8 @@ export function useLibrary({ navigate, selectedNovel, onStatus, onDeleteSelected
   const [scrapeState, setScrapeState] = useState<ScrapeState>(emptyScrapeState);
   const [qidianAuth, setQidianAuth] = useState<QidianAuthState>({ logged_in: false });
   const handledScrapeResult = useRef("");
+  const [loadVersion, setLoadVersion] = useState(0);
+  const reload = useCallback(() => setLoadVersion((version) => version + 1), []);
 
   const displayName = useCallback(
     (name: string) => metadataByName[name]?.translated_name || name,
@@ -65,7 +67,7 @@ export function useLibrary({ navigate, selectedNovel, onStatus, onDeleteSelected
       })
       .catch((error) => onStatus(errorMessage(error), true));
     return () => { active = false; };
-  }, [onStatus]);
+  }, [loadVersion, onStatus]);
 
   const pendingTitleSignature = Object.values(metadataByName)
     .filter((metadata) =>
@@ -205,7 +207,7 @@ export function useLibrary({ navigate, selectedNovel, onStatus, onDeleteSelected
   }
 
   return {
-    allCount: novels.length, deleteBook, displayName, filteredCount: filteredNovels.length,
+    allCount: novels.length, deleteBook, displayName, filteredCount: filteredNovels.length, reload,
     loadMetadata, logoutQidian, metadataByName, page, pageCount, qidianAuth, query, runScrape,
     saveQidianCookies, scrapeEnd, scrapeStart, scrapeState, scrapeUrl, setPage, setQuery,
     setScrapeEnd, setScrapeStart, setScrapeUrl, setSort, sort, useSourceUrl, visibleNovels,

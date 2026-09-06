@@ -32,48 +32,72 @@ export function useSettings(onStatus: (message: string, isError?: boolean) => vo
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [usage, setUsage] = useState<Usage>(emptyUsage);
   const requestVersion = useRef(0);
+  const configRef = useRef(config);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [loadVersion, setLoadVersion] = useState(0);
 
   useEffect(() => {
     let active = true;
     Promise.all([api.config(), api.usage()])
       .then(([nextConfig, nextUsage]) => {
         if (!active) return;
-        setConfig(nextConfig);
+        if (requestVersion.current === 0) {
+          configRef.current = nextConfig;
+          setConfig(nextConfig);
+        }
         setUsage(nextUsage);
       })
       .catch((error) => onStatus(errorMessage(error), true));
     return () => { active = false; };
-  }, [onStatus]);
+  }, [loadVersion, onStatus]);
 
   const save = useCallback(async (patch: Partial<Config> = {}) => {
     const version = ++requestVersion.current;
-    const nextConfig = { ...config, ...patch };
+    const nextConfig = { ...configRef.current, ...patch };
+    configRef.current = nextConfig;
     const saveApiKey = Object.keys(patch).length === 0;
-    try {
-      const current = await api.config();
-      const saved = await api.saveConfig({
-        openrouter_api_key: saveApiKey && openrouterApiKey.trim() ? openrouterApiKey.trim() : undefined,
-        keep_existing_openrouter_key: !saveApiKey || (!openrouterApiKey.trim() && current.has_openrouter_api_key),
-        translation_backend: nextConfig.translation_backend,
-        glossary_backend: nextConfig.glossary_backend,
-        translation_reasoning_effort: nextConfig.translation_reasoning_effort,
-        glossary_reasoning_effort: nextConfig.glossary_reasoning_effort,
-        codex_fast_mode: nextConfig.codex_fast_mode,
-        codex_translation_model: nextConfig.codex_translation_model,
-        codex_glossary_model: nextConfig.codex_glossary_model,
-        translation_model: nextConfig.translation_model,
-        translation_provider: nextConfig.translation_provider,
-        glossary_model: nextConfig.glossary_model,
-        glossary_provider: nextConfig.glossary_provider,
-        glossary_strategy: nextConfig.glossary_strategy,
-        added_models: nextConfig.added_models,
-      });
-      if (version !== requestVersion.current) return;
-      setConfig(saved);
-      setOpenrouterApiKey("");
-      onStatus("Settings saved.");
-    } catch (error) { onStatus(errorMessage(error), true); }
-  }, [config, onStatus, openrouterApiKey]);
+    setSaving(true);
+    setSaveError("");
+    // Serialize writes, not just their responses: each snapshot includes preceding edits.
+    const operation = saveQueue.current.then(async () => {
+      try {
+        const current = await api.config();
+        const saved = await api.saveConfig({
+          openrouter_api_key: saveApiKey && openrouterApiKey.trim() ? openrouterApiKey.trim() : undefined,
+          keep_existing_openrouter_key: !saveApiKey || (!openrouterApiKey.trim() && current.has_openrouter_api_key),
+          translation_backend: nextConfig.translation_backend,
+          glossary_backend: nextConfig.glossary_backend,
+          translation_reasoning_effort: nextConfig.translation_reasoning_effort,
+          glossary_reasoning_effort: nextConfig.glossary_reasoning_effort,
+          codex_fast_mode: nextConfig.codex_fast_mode,
+          codex_translation_model: nextConfig.codex_translation_model,
+          codex_glossary_model: nextConfig.codex_glossary_model,
+          translation_model: nextConfig.translation_model,
+          translation_provider: nextConfig.translation_provider,
+          glossary_model: nextConfig.glossary_model,
+          glossary_provider: nextConfig.glossary_provider,
+          glossary_strategy: nextConfig.glossary_strategy,
+          added_models: nextConfig.added_models,
+        });
+        if (version !== requestVersion.current) return;
+        configRef.current = saved;
+        setConfig(saved);
+        if (saveApiKey) setOpenrouterApiKey((currentKey) => currentKey === openrouterApiKey ? "" : currentKey);
+        onStatus("Settings saved.");
+      } catch (error) {
+        if (version === requestVersion.current) {
+          setSaveError(errorMessage(error));
+          onStatus(errorMessage(error), true);
+        }
+      } finally {
+        if (version === requestVersion.current) setSaving(false);
+      }
+    });
+    saveQueue.current = operation;
+    await operation;
+  }, [onStatus, openrouterApiKey]);
 
   const resetUsage = useCallback(async () => {
     try { setUsage(await api.resetUsage()); onStatus("Token usage reset."); }
@@ -81,8 +105,10 @@ export function useSettings(onStatus: (message: string, isError?: boolean) => vo
   }, [onStatus]);
 
   const updateConfig = useCallback((patch: Partial<Config>) => {
-    setConfig((current) => ({ ...current, ...patch }));
+    configRef.current = { ...configRef.current, ...patch };
+    setConfig(configRef.current);
   }, []);
 
-  return { config, openrouterApiKey, resetUsage, save, setOpenrouterApiKey, setUsage, updateConfig, usage };
+  const reload = useCallback(() => setLoadVersion((version) => version + 1), []);
+  return { config, openrouterApiKey, resetUsage, save, saving, saveError, reload, setOpenrouterApiKey, setUsage, updateConfig, usage };
 }

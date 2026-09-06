@@ -121,7 +121,8 @@ export function useBulkTranslation({
         if (state.running) onStatus(progress(state));
         await refresh(state, previousState, isCurrent);
       }).catch((error: unknown) => {
-        if (active && isCurrent()) onStatus(error instanceof Error ? error.message : String(error), true);
+        // Applying progress can clean up this effect while its refresh is still in flight.
+        if (isCurrent()) onStatus(error instanceof Error ? error.message : String(error), true);
       }).finally(() => { pending = false; });
     }, 1500);
     return () => { active = false; window.clearInterval(interval); };

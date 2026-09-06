@@ -18,12 +18,23 @@ import type {
 } from "./types";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch {
+    throw new Error("Could not connect to Novel Translator. Check your connection and try again.");
+  }
   const text = await response.text();
-  const data = text ? parseJsonResponse(text) : {};
+  let data;
+  try {
+    data = JSON.parse(text);
+    if (data === null || typeof data !== "object") throw new Error();
+  } catch {
+    throw new Error(`The server returned an unexpected response (HTTP ${response.status}). Check your connection or tunnel access, then retry.`);
+  }
   if (!response.ok) {
     throw new Error(data.error || `Request failed: HTTP ${response.status}`);
   }
@@ -43,14 +54,6 @@ async function requestWithRetry<T>(path: string, attempts = 3): Promise<T> {
     }
   }
   throw lastError;
-}
-
-function parseJsonResponse(text: string): any {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {};
-  }
 }
 
 export const api = {

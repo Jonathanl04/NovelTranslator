@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useState,
 } from "react";
 import {
   BookOpen,
@@ -18,7 +19,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -30,7 +30,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { BulkItem, Chapter, NovelMetadata } from "@/types";
-import { getReadingProgress, saveReadingProgress } from "@/appUtils";
+import { getReadingProgress, saveReadingProgress, translatePath } from "@/appUtils";
 import { formatInteger } from "./shared";
 
 export type ReaderTab = "raw" | "translated";
@@ -72,6 +72,7 @@ export function TranslatePage({
   onClear,
   onTranslate,
   onAbortBulk,
+  onRetryFailed,
   onReaderTabChange,
   onPrevious,
   onNext,
@@ -112,6 +113,7 @@ export function TranslatePage({
   onClear: () => void;
   onTranslate: (mode: "full" | "only") => void;
   onAbortBulk: () => void;
+  onRetryFailed: () => void;
   onReaderTabChange: (tab: ReaderTab) => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -132,6 +134,8 @@ export function TranslatePage({
         />
 
         <ChapterPanel
+          key={novel}
+          novel={novel}
           busy={busy}
           bulkQueueActive={bulkQueueActive}
           chapters={chapters}
@@ -151,6 +155,7 @@ export function TranslatePage({
           onClear={onClear}
           onTranslate={onTranslate}
           onAbortBulk={onAbortBulk}
+          onRetryFailed={onRetryFailed}
         />
 
         <div className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] gap-4">
@@ -239,6 +244,7 @@ function WorkspaceHeader({
 }
 
 function ChapterPanel({
+  novel,
   busy,
   bulkQueueActive,
   chapters,
@@ -258,7 +264,9 @@ function ChapterPanel({
   onClear,
   onTranslate,
   onAbortBulk,
+  onRetryFailed,
 }: {
+  novel: string;
   busy: boolean;
   bulkQueueActive: boolean;
   chapters: Chapter[];
@@ -278,7 +286,29 @@ function ChapterPanel({
   onClear: () => void;
   onTranslate: (mode: "full" | "only") => void;
   onAbortBulk: () => void;
+  onRetryFailed: () => void;
 }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const rowHeight = 40;
+  const windowSize = 20;
+  const firstRow = Math.min(Math.max(0, Math.floor(scrollTop / rowHeight) - 5), Math.max(0, visibleChapters.length - windowSize));
+  const lastRow = Math.min(visibleChapters.length, firstRow + windowSize);
+  const renderedChapters = visibleChapters.slice(firstRow, lastRow);
+  const failedItems = [...itemsByFile.values()].filter((item) => item.status === "failed" && item.mode !== "name");
+
+  useEffect(() => {
+    if (viewport.current) viewport.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [search]);
+
+  function focusChapter(index: number) {
+    const target = Math.max(0, Math.min(visibleChapters.length - 1, index));
+    if (!viewport.current) return;
+    viewport.current.scrollTop = target * rowHeight;
+    setScrollTop(viewport.current.scrollTop);
+    requestAnimationFrame(() => viewport.current?.querySelector<HTMLAnchorElement>(`[data-chapter-index="${target}"] a`)?.focus());
+  }
   const selectedCount = selection.size;
   const summary =
     itemsTotal > 0
@@ -358,8 +388,20 @@ function ChapterPanel({
           Translate target: <span className="font-medium text-foreground">{target}</span>
         </span>
       </div>
-      <ScrollArea className="h-56 min-w-0 overflow-hidden rounded-lg border bg-background max-[980px]:h-72">
-        <Table className="table-fixed">
+      {failedItems.length > 0 && (
+        <div className="grid gap-2 rounded-lg border border-destructive/40 p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium text-destructive">{failedItems.length} failed {failedItems.length === 1 ? "chapter" : "chapters"}</span>
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onRetryFailed}>Retry failed chapters</Button>
+          </div>
+          <details>
+            <summary className="cursor-pointer">Failure details</summary>
+            {failedItems.map((item) => <p key={item.filename} className="mt-2 whitespace-pre-wrap break-words"><strong>{item.title}: </strong>{item.message || "Translation failed."}</p>)}
+          </details>
+        </div>
+      )}
+      <div ref={viewport} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)} className="h-56 min-w-0 overflow-auto rounded-lg border bg-background max-[980px]:h-72" aria-label="Chapter list">
+        <Table className="table-fixed" aria-rowcount={visibleChapters.length + 1}>
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">Use</TableHead>
@@ -368,12 +410,16 @@ function ChapterPanel({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visibleChapters.map((chapter) => {
+            {firstRow > 0 && <tr aria-hidden="true"><td colSpan={3} style={{ height: firstRow * rowHeight, padding: 0 }} /></tr>}
+            {renderedChapters.map((chapter, offset) => {
               const item = itemsByFile.get(chapter.filename);
               const isOpen = selectedFile === chapter.filename;
               return (
                 <TableRow
                   key={chapter.filename}
+                  data-chapter-index={firstRow + offset}
+                  aria-rowindex={firstRow + offset + 2}
+                  style={{ height: rowHeight }}
                   className={cn(
                     "cursor-pointer",
                     isOpen && "bg-teal-50/70 hover:bg-teal-50/70 dark:bg-teal-950/40 dark:hover:bg-teal-950/40"
@@ -391,17 +437,28 @@ function ChapterPanel({
                     />
                   </TableCell>
                   <TableCell className="whitespace-normal">
-                    <span
+                    <a
+                      href={translatePath(novel, chapter.filename)}
+                      title={chapter.title}
+                      aria-current={isOpen ? "page" : undefined}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                        event.preventDefault();
+                        onOpen(chapter.filename);
+                      }}
+                      onKeyDown={(event) => {
+                        const index = firstRow + offset;
+                        const target = event.key === "ArrowDown" ? index + 1 : event.key === "ArrowUp" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? visibleChapters.length - 1 : null;
+                        if (target !== null) { event.preventDefault(); focusChapter(target); }
+                      }}
                       className={cn(
-                        "line-clamp-2 [overflow-wrap:anywhere] text-sm font-medium",
+                        "block truncate rounded-sm text-sm font-medium focus-visible:outline-2 focus-visible:outline-primary",
                         isOpen && "text-teal-800 dark:text-teal-300"
                       )}
                     >
                       {chapter.title}
-                    </span>
-                    {item?.status === "failed" && item.message && (
-                      <span className="mt-0.5 block text-xs text-destructive [overflow-wrap:anywhere]">{item.message}</span>
-                    )}
+                    </a>
                   </TableCell>
                   <TableCell className="text-right">
                     {item ? (
@@ -415,6 +472,7 @@ function ChapterPanel({
                 </TableRow>
               );
             })}
+            {lastRow < visibleChapters.length && <tr aria-hidden="true"><td colSpan={3} style={{ height: (visibleChapters.length - lastRow) * rowHeight, padding: 0 }} /></tr>}
             {visibleChapters.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} className="text-center text-sm text-muted-foreground">
@@ -424,7 +482,7 @@ function ChapterPanel({
             )}
           </TableBody>
         </Table>
-      </ScrollArea>
+      </div>
     </section>
   );
 }

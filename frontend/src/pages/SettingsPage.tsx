@@ -29,6 +29,8 @@ export function SettingsPage({
   openrouterApiKey,
   config,
   usage,
+  saving,
+  saveError,
   onOpenrouterApiKeyChange,
   onConfigChange,
   onSaveConfig,
@@ -37,6 +39,8 @@ export function SettingsPage({
   openrouterApiKey: string;
   config: Config;
   usage: Usage;
+  saving: boolean;
+  saveError: string;
   onOpenrouterApiKeyChange: (value: string) => void;
   onConfigChange: (patch: Partial<Config>) => void;
   onSaveConfig: (patch?: Partial<Config>) => void | Promise<void>;
@@ -226,6 +230,13 @@ export function SettingsPage({
   return (
     <main className="min-h-[calc(100vh-3.5rem)] bg-muted/20 p-3 sm:p-4">
       <section className="mx-auto grid max-w-5xl gap-4">
+        {saving && <p role="status" className="text-sm text-muted-foreground">Saving settings...</p>}
+        {saveError && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive p-3 text-sm">
+            <p className="min-w-0 flex-1 break-words text-destructive">{saveError}</p>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onSaveConfig()}>Retry saving</Button>
+          </div>
+        )}
         <div>
           <h2 className="text-lg font-semibold">Settings</h2>
           <p className="text-sm text-muted-foreground">API key, models, and token usage.</p>
