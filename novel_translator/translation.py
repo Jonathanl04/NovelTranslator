@@ -16,6 +16,7 @@ from .failure_log import log_llm_failure
 from .glossary import glossary_path, glossary_prompt, load_glossary, merge_glossary_entries
 from .glossary_strategy import recent_glossary_for_chapter
 from .json_store import write_json
+from .novel_activity import novel_work
 from .llm_schemas import FRAGMENT_REPLACEMENTS_SCHEMA, GLOSSARY_SCHEMA, TRANSLATION_SCHEMA
 from .translation_prompts import (
     SHARED_PROMPT_PREFIX,
@@ -143,6 +144,7 @@ def is_retryable_service_unavailable(message: str) -> bool:
     )
 
 
+@novel_work
 def populate_glossary_for_chapter(
     novel: str,
     filename: str,
@@ -229,6 +231,7 @@ def populate_glossary_for_chapter(
     return merged
 
 
+@novel_work
 def translate_chapter(
     novel: str,
     filename: str,
@@ -324,7 +327,7 @@ def translate_chapter(
             compact_json = apply_fragment_replacements(
                 draft_json, parse_fragment_replacements(fragment_response)
             )
-            parsed = parse_translation_response(json.loads(compact_json))
+            parsed = parse_translation_response(json.loads(compact_json), body)
         except (AppError, json.JSONDecodeError) as exc:
             log_llm_failure(
                 "fragment_repair_parse_error",
@@ -348,7 +351,7 @@ def translate_chapter(
                 codex_fast_mode=config["codex_fast_mode"],
             )
             try:
-                parsed = parse_translation_response(repair_response)
+                parsed = parse_translation_response(repair_response, body)
             except AppError as exc:
                 log_parse_failure("full_repair_parse_error", config["translation_model"], repair_messages, repair_response, exc)
                 raise

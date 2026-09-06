@@ -15,6 +15,7 @@ from .glossary_strategy import (
     prepare_rolling_glossary_prompt,
 )
 from .json_store import read_json, write_json
+from .novel_activity import begin_novel_work, end_novel_work, novel_work
 from .novel_names import ensure_translated_novel_name, needs_translated_novel_name
 from .translation import translate_chapter
 
@@ -110,6 +111,7 @@ def save_bulk_state(novel: str, state: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+@novel_work
 def get_bulk_state(novel: str) -> dict[str, Any]:
     with _bulk_lock:
         state = load_bulk_state(novel)
@@ -122,6 +124,7 @@ def get_bulk_state(novel: str) -> dict[str, Any]:
         return state
 
 
+@novel_work
 def enqueue_novel_name_translation(novel: str) -> dict[str, Any]:
     safe_novel = novel.strip()
     if not safe_novel:
@@ -166,6 +169,7 @@ def enqueue_novel_name_translation(novel: str) -> dict[str, Any]:
         return state
 
 
+@novel_work
 def start_bulk_translation(novel: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     safe_novel = novel.strip()
     if not safe_novel:
@@ -184,6 +188,7 @@ def start_bulk_translation(novel: str, items: list[dict[str, Any]]) -> dict[str,
         return state
 
 
+@novel_work
 def abort_bulk_translation(novel: str) -> dict[str, Any]:
     safe_novel = novel.strip()
     if not safe_novel:
@@ -238,14 +243,25 @@ def _is_worker_alive(novel: str) -> bool:
 
 def _start_worker(novel: str) -> None:
     abort_event = Event()
+
+    def run() -> None:
+        try:
+            _process_bulk_translation_queue(novel, abort_event)
+        finally:
+            end_novel_work(novel)
+
     worker = Thread(
-        target=_process_bulk_translation_queue,
-        args=(novel, abort_event),
+        target=run,
         daemon=True,
     )
     _bulk_workers[novel] = worker
     _bulk_abort_events[novel] = abort_event
-    worker.start()
+    begin_novel_work(novel)
+    try:
+        worker.start()
+    except Exception:
+        end_novel_work(novel)
+        raise
 
 
 def _process_bulk_translation_queue(novel: str, abort_event: Event) -> None:

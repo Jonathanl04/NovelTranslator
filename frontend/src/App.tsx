@@ -71,6 +71,7 @@ export function App() {
     setError(isError);
   }, []);
   const settings = useSettings(showStatus);
+  const refreshChapterLoadId = chapterLoadId.current;
   const {
     aborted: bulkAborted,
     abort: abortBulk,
@@ -88,19 +89,22 @@ export function App() {
     onStatus: showStatus,
     onChapters: setChapters,
     onUsage: settings.setUsage,
-    onGlossaryRefresh: async () => {
-      if (novel) setGlossary(await api.glossary(novel));
+    onGlossaryRefresh: async (isCurrent) => {
+      if (!novel) return;
+      const glossary = await api.glossary(novel);
+      if (isCurrent()) setGlossary(glossary);
     },
-    onSelectedChapterRefresh: async () => {
-      if (!novel || !selectedFile) return;
+    onSelectedChapterRefresh: async (isCurrent) => {
+      if (!novel || !selectedFile || chapterLoadId.current !== refreshChapterLoadId) return;
       const chapter = await api.chapter(novel, selectedFile);
+      if (!isCurrent() || chapterLoadId.current !== refreshChapterLoadId) return;
       setSource(chapter.source);
       setTranslated(chapter.translated);
     },
-    onMetadataRefresh: async () => {
+    onMetadataRefresh: async (isCurrent) => {
       if (!novel) return;
       const metadata = await api.novel(novel);
-      setNovelMetadata(metadata);
+      if (isCurrent()) setNovelMetadata(metadata);
     },
   });
   const busy = manualBusy || bulkRunning;

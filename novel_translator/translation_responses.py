@@ -28,7 +28,7 @@ def parse_translation_response(data: dict[str, Any], source_body: str = "") -> d
         raise AppError("Translation JSON is missing translated_title.", 502)
     if not isinstance(body, str) or not body.strip():
         raise AppError("Translation JSON is missing translated_body.", 502)
-    if contains_source_language_text(body) and is_incomplete_translation_body(source_body, body):
+    if is_incomplete_translation_body(source_body, body):
         raise AppError(INCOMPLETE_TRANSLATION_MESSAGE, 502)
     if contains_source_language_text(title) or contains_source_language_text(body):
         raise AppError(

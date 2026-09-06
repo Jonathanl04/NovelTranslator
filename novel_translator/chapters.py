@@ -7,6 +7,7 @@ from urllib.parse import quote
 from . import settings
 from .errors import AppError
 from .json_store import read_json, write_json
+from .novel_activity import novel_deletion
 from .source_language import contains_source_language_text
 
 
@@ -63,17 +64,18 @@ def delete_novel(
         translated_root / safe_novel,
         glossary_root / safe_stem,
     ]
-    for target in unique_paths(targets):
-        remove_tree(target)
+    with novel_deletion(safe_novel):
+        for target in unique_paths(targets):
+            remove_tree(target)
 
-    try:
-        from .bulk_translate import bulk_state_path
-        remove_file(settings.DATA_ROOT / "bulk" / f"{safe_stem}.json")
-        remove_file(bulk_state_path(safe_novel))
-    except AppError:
-        raise
-    except Exception:
-        pass
+        try:
+            from .bulk_translate import bulk_state_path
+            remove_file(settings.DATA_ROOT / "bulk" / f"{safe_stem}.json")
+            remove_file(bulk_state_path(safe_novel))
+        except AppError:
+            raise
+        except Exception:
+            pass
     return {"deleted": safe_novel}
 
 

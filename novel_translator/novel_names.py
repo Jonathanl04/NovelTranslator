@@ -10,6 +10,7 @@ from .codex_backend import call_codex
 from .openrouter import call_openrouter
 from .errors import AppError
 from .json_store import read_json, write_json
+from .novel_activity import novel_work
 from .llm_schemas import NOVEL_NAME_SCHEMA
 from .source_language import contains_source_language_text
 
@@ -41,6 +42,7 @@ def needs_translated_novel_name(novel: str, output_root: Path | None = None) -> 
     )
 
 
+@novel_work
 def ensure_translated_novel_name(
     novel: str,
     output_root: Path | None = None,
