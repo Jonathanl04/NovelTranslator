@@ -55,7 +55,15 @@ def bookto_real_chrome_enabled() -> bool:
     return configured.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def bookto_headless_enabled() -> bool:
+    configured = os.environ.get("NOVEL_TRANSLATOR_BOOKTO_HEADLESS")
+    if configured is None:
+        return os.name != "nt"
+    return configured.strip().lower() in {"1", "true", "yes", "on"}
+
+
 FETCH_OPTIONS["real_chrome"] = bookto_real_chrome_enabled()
+FETCH_OPTIONS["headless"] = bookto_headless_enabled()
 
 
 def is_bookto_host(host: str) -> bool:
@@ -190,9 +198,9 @@ def fetch_text(
             load_dom=True,
             network_idle=False,
             google_search=False,
-            # Scrapling's solver recursively retries a persistent challenge.
-            # Real Chrome usually clears Bookto without it; keep our retry bounded.
-            solve_cloudflare=False,
+            # Bookto31 uses a managed Turnstile challenge. Solve it on the initial
+            # page; later chapter requests reuse the clearance from this session.
+            solve_cloudflare=retry_challenge,
             wait_selector=wait_selector,
             wait_selector_state="attached",
             timeout=30_000 if retry_challenge else 15_000,

@@ -11,6 +11,7 @@ from unittest.mock import patch
 from scraper.download_bookto import (
     bookto_candidate_is_viable,
     bookto_candidate_hosts,
+    bookto_headless_enabled,
     bookto_real_chrome_enabled,
     collect_chapters_for_range,
     extract_book_name,
@@ -40,6 +41,20 @@ class BooktoDownloaderTests(unittest.TestCase):
             {"NOVEL_TRANSLATOR_BOOKTO_REAL_CHROME": "false"},
         ):
             self.assertFalse(bookto_real_chrome_enabled())
+
+    def test_headless_mode_can_be_enabled(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NOVEL_TRANSLATOR_BOOKTO_HEADLESS": "true"},
+        ):
+            self.assertTrue(bookto_headless_enabled())
+
+    def test_headless_mode_can_be_disabled(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"NOVEL_TRANSLATOR_BOOKTO_HEADLESS": "0"},
+        ):
+            self.assertFalse(bookto_headless_enabled())
 
     def test_candidates_increment_from_supplied_domain(self) -> None:
         old_url = "https://bookto23.com/bbs/board.php?bo_table=novel&wr_id=27341&spage=1"
@@ -298,7 +313,24 @@ class BooktoDownloaderTests(unittest.TestCase):
             )
 
         self.assertEqual(len(fetch_calls), 2)
-        self.assertTrue(all(call["solve_cloudflare"] is False for call in fetch_calls))
+        self.assertTrue(all(call["solve_cloudflare"] is True for call in fetch_calls))
+
+    def test_fetch_text_skips_solver_after_initial_clearance(self) -> None:
+        fetch_calls: list[dict[str, object]] = []
+
+        def successful_fetch(_url: str, **kwargs: object) -> SimpleNamespace:
+            fetch_calls.append(kwargs)
+            return SimpleNamespace(status=200, html_content='<div id="novel_content">text</div>')
+
+        text = fetch_text(
+            SimpleNamespace(fetch=successful_fetch),
+            "https://bookto31.com/bbs/board.php?bo_table=novel&wr_id=28127",
+            "#novel_content",
+            retry_challenge=False,
+        )
+
+        self.assertIn("novel_content", text)
+        self.assertFalse(fetch_calls[0]["solve_cloudflare"])
 
     def test_fetch_text_retries_challenge_once_in_persistent_session(self) -> None:
         responses = iter(
